@@ -108,6 +108,10 @@
   .project-card.meshforge { --accent: #e8590c; --accent-dim: #5c3012; }
   .project-card.cardputer { --accent: #5ad1e6; --accent-dim: #215a63; }
   .project-card.polycraft { --accent: #e0a83e; --accent-dim: #5c461a; }
+  .project-card.logiclab { --accent: #4fa3f7; --accent-dim: #1f4a7a; }
+  .project-card .logo-glyph { width: 72px; height: 72px; border-radius: 16px; justify-self: center; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(#9fd2ff, #2b7fd6 55%, #1a5aa8); color: #fff; font: 700 15px/1 ui-monospace, "IBM Plex Mono", monospace; letter-spacing: -0.5px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 0 0 1px #17406e; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
 
   /* ---- other projects ---- */
   .other-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
@@ -180,6 +184,23 @@
         <div class="cta">Visit site →</div>
       </a>
 
+    </div>
+  </div>
+</section>
+
+<section id="tools">
+  <div class="wrap">
+    <h2 class="section-title">Web tools</h2>
+    <div class="projects">
+      <a class="project-card reveal logiclab" href="logiclab/">
+        <div class="logo-glyph">AND</div>
+        <div class="body">
+          <h3>LogicLab</h3>
+          <p>Logic circuit simulator in your browser: NOT/AND/OR/XOR/NAND/NOR gates, flip-flops and counters, 7-segment displays, a binary→decimal converter and a 10×10 LED matrix — with 25 ready-made examples to build on.</p>
+          <div class="tags"><span class="tag">HTML / Canvas</span><span class="tag">Runs in the browser</span></div>
+        </div>
+        <div class="cta">Open tool →</div>
+      </a>
     </div>
   </div>
 </section>

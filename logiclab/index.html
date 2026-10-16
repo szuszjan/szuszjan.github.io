@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LogicLab</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;font:12px/1.4 "Segoe UI",Tahoma,sans-serif;color:#000;
+  background:radial-gradient(ellipse at 30% 20%,#5ea0dd 0%,#2b6cb0 45%,#13407a 100%)}
+#win{position:absolute;inset:6px;display:flex;flex-direction:column;border:1px solid #1d3557;border-radius:8px 8px 4px 4px;
+  background:linear-gradient(#c9dcf3,#a9c5e8 30%,#b8d0ee);box-shadow:0 0 0 1px rgba(255,255,255,.55) inset,0 8px 28px rgba(0,0,0,.55);padding:0 6px 6px}
+#titlebar{height:30px;display:flex;align-items:center;gap:7px;flex:none;position:relative}
+#titlebar .ico{width:18px;height:18px;border-radius:4px;background:linear-gradient(#8fd0ff,#2b7fd6 55%,#1a5aa8);border:1px solid #17406e;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);color:#fff;font:bold 9px/16px Consolas,monospace;text-align:center}
+#titlebar .ttl{font-size:13px;text-shadow:0 0 6px #fff,0 0 3px #fff,0 0 10px #fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#caps{margin-left:auto;display:flex;margin-top:-14px;border:1px solid #2c3e57;border-top:none;border-radius:0 0 5px 5px;overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.6) inset}
+#caps b{width:28px;height:19px;font-weight:normal;text-align:center;line-height:17px;font-size:13px;cursor:default;color:#1b2a40;
+  background:linear-gradient(#e8eff9,#c5d5ea 48%,#a9bfdc 52%,#c7d9f0);border-right:1px solid #4a6285}
+#caps b:hover{background:linear-gradient(#f4fbff,#bfe6fa 48%,#7fc6ee 52%,#b6e5fb)}
+#caps b.x{width:44px;color:#fff;border-right:none;background:linear-gradient(#e9a898,#d1553f 48%,#b3200a 52%,#d85a3f);text-shadow:0 0 3px #600}
+#caps b.x:hover{background:linear-gradient(#ffc7b8,#f0694e 48%,#d82a0f 52%,#ff8a63)}
+#menubar{display:flex;height:23px;flex:none;background:linear-gradient(#f9fbfe,#e4ecf7);border:1px solid #9fb3cf;border-bottom:none;padding:1px 2px;gap:1px}
+.mb{padding:2px 8px;border:1px solid transparent;border-radius:3px;cursor:default;line-height:17px}
+.mb:hover,.mb.open{border-color:#a8d8f3;background:linear-gradient(#fdfeff,#dcebfc 48%,#c1dbf6 52%,#d3e7fb)}
+.mb.open{border-color:#7da2ce;background:linear-gradient(#e3eefb,#cfe2f9)}
+#toolbar{display:flex;align-items:center;gap:2px;height:30px;flex:none;padding:2px 4px;background:linear-gradient(#eef3fa,#d7e3f3 50%,#cddcf0);border:1px solid #9fb3cf;border-bottom:1px solid #8aa3c6}
+.tb{height:24px;padding:0 9px;border:1px solid transparent;border-radius:3px;background:none;font:inherit;cursor:default;color:#1e2a3a;display:flex;align-items:center;gap:5px}
+.tb:hover{border-color:#a8cbe6;background:linear-gradient(#fbfdff,#e3f0fc 48%,#cde4f8 52%,#dbeafa)}
+.tb:active,.tb.on{border-color:#6d94bf;background:linear-gradient(#cfe0f3,#c0d6ee 48%,#a9c8e8 52%,#b9d4ee);box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}
+.sep{width:2px;height:20px;margin:0 4px;border-left:1px solid #a9bbd3;border-right:1px solid #fff}
+#body{flex:1;display:flex;min-height:0;border:1px solid #8aa3c6;border-top:none;background:#fff}
+.pane{background:#fff;overflow-y:auto;flex:none;display:flex;flex-direction:column}
+#left{width:245px;border-right:1px solid #9fb3cf;background:linear-gradient(90deg,#fff,#f5f8fd)}
+#right{width:255px;border-left:1px solid #9fb3cf;background:linear-gradient(#fff,#f3f7fc)}
+.navh{padding:5px 8px;color:#1e395b;font-size:12px;background:linear-gradient(#fff,#e4ecf7);border-bottom:1px solid #cdd9ea;border-top:1px solid #fff;margin-top:4px}
+.navh:first-child{margin-top:0}
+.item{padding:3px 8px 3px 14px;border:1px solid transparent;margin:1px 3px;border-radius:3px;cursor:default;display:flex;justify-content:space-between;white-space:nowrap}
+.item:hover{border-color:#b8d6fb;background:linear-gradient(#fafbfd,#ebf3fd)}
+.item.sel{border-color:#7da2ce;background:linear-gradient(#f7fbff,#dcebfc 48%,#c2dbf6 52%,#d7e8fb)}
+.item .ac{color:#7b8796}
+#main{flex:1;position:relative;min-width:0;background:#10161f;border:1px solid #5d6f8a;box-shadow:inset 0 0 12px #000}
+canvas{display:block;width:100%;height:100%;cursor:crosshair}
+#hint{position:absolute;left:10px;bottom:8px;color:#ffd23f;font-size:12px;pointer-events:none;text-shadow:0 0 6px #000}
+#info{padding:10px 12px 14px}
+#info h1{font-size:16px;font-weight:normal;color:#1e3a8a;margin:0 0 6px;border-bottom:1px solid #c5d3e6;padding-bottom:4px}
+#info h2{font-size:12px;font-weight:normal;color:#1e395b;margin:12px 0 4px;border-bottom:1px solid #dbe5f2}
+#info p{margin:4px 0}.dim{color:#5a6b82}
+kbd{background:linear-gradient(#fff,#e1e6ee);border:1px solid #9aa7b9;border-radius:3px;padding:0 4px;font:11px Consolas,monospace;box-shadow:0 1px 0 #fff}
+#status{height:22px;flex:none;display:flex;align-items:center;background:linear-gradient(#e9f0fa,#cfdcee);border:1px solid #8aa3c6;border-top:1px solid #fff;margin-top:-1px;padding:0 4px;color:#1e2a3a}
+#status span{padding:0 10px;border-right:1px solid #a9bbd3;height:16px;line-height:16px;box-shadow:1px 0 0 #fff}
+#status span:last-child{border:none;box-shadow:none;margin-left:auto}
+#dd{position:fixed;z-index:50;display:none;min-width:200px;max-height:80vh;overflow-y:auto;padding:2px;background:linear-gradient(90deg,#f1f1f1 26px,#fff 26px);
+  border:1px solid #979797;border-radius:3px;box-shadow:2px 3px 6px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.8) inset}
+.mi{display:flex;align-items:center;padding:3px 24px 3px 4px;border:1px solid transparent;border-radius:3px;cursor:default;white-space:nowrap}
+.mi .ck{width:22px;text-align:center;color:#1e3a8a;font-weight:bold}
+.mi .ac{margin-left:auto;padding-left:26px;color:#6b7686}
+.mi:hover{border-color:#7da2ce;background:linear-gradient(#f5faff,#dbeafc 48%,#c2dbf6 52%,#d5e7fb)}
+.ms{height:2px;margin:3px 2px 3px 26px;border-top:1px solid #d6d6d6;border-bottom:1px solid #fff}
+#dlgbg{position:fixed;inset:0;background:rgba(0,20,50,.35);display:none;align-items:center;justify-content:center;z-index:100}
+#dlg{width:430px;max-width:92vw;border:1px solid #1d3557;border-radius:8px;background:linear-gradient(#c9dcf3,#a9c5e8);padding:0 6px 6px;box-shadow:0 10px 36px rgba(0,0,0,.6)}
+#dlg .dt{height:28px;line-height:28px;font-size:13px;text-shadow:0 0 6px #fff,0 0 3px #fff}
+#dlg .dc{background:#f0f0f0;border:1px solid #8aa3c6;padding:14px 16px}
+#dlg .dc h3{margin:0 0 8px;font-weight:normal;font-size:16px;color:#1e3a8a}
+#dlg .db{background:linear-gradient(#f3f3f3,#dfdfdf);border:1px solid #8aa3c6;border-top:none;padding:8px 12px;text-align:right}
+.btn{min-width:78px;padding:3px 14px;font:inherit;border:1px solid #707070;border-radius:3px;color:#000;cursor:default;
+  background:linear-gradient(#f2f2f2 0,#ebebeb 49%,#dddddd 50%,#cfcfcf 100%);box-shadow:0 0 0 1px rgba(255,255,255,.8) inset}
+.btn:hover{border-color:#3c7fb1;background:linear-gradient(#eaf6fd 0,#d9f0fc 49%,#bee6fd 50%,#a7d9f5 100%)}
+.btn:active{border-color:#2c628b;background:linear-gradient(#c5e4f6,#98d1ef 49%,#68b3db 50%,#bee6fd)}
+</style>
+</head>
+<body>
+<div id="win">
+  <div id="titlebar"><div class="ico">&amp;</div><div class="ttl">LogicLab — Symulator układów logicznych</div>
+    <div id="caps"><b id="cMin">&#8211;</b><b id="cMax">&#9633;</b><b class="x" id="cX">&#10005;</b></div></div>
+  <div id="menubar"></div>
+  <div id="toolbar"></div>
+  <div id="body">
+    <div id="left" class="pane">
+      <div class="navh">Przykłady do rozbudowy</div><div id="examples"></div>
+      <div class="navh">Elementy (klawisze 1–9, 0)</div><div id="palette"></div>
+    </div>
+    <div id="main"><canvas id="cv"></canvas><div id="hint"></div></div>
+    <div id="right" class="pane"><div class="navh">Szczegóły</div><div id="info"></div></div>
+  </div>
+  <div id="status"></div>
+</div>
+<div id="dd"></div>
+<div id="dlgbg"><div id="dlg"><div class="dt" id="dlgT"></div><div class="dc" id="dlgC"></div><div class="db"><button class="btn" id="dlgOk">OK</button></div></div></div>
+<script>
+'use strict';
+/* ================= RDZEŃ SYMULACJI (łatwy do przeniesienia na C++) ================= */
+// Węzeł: {id,type,x,y,v,src:[id|null,id|null],label}
+// Typy: IN BTN CLK OUT NOT AND OR XOR NAND NOR
+const GATES = ['NOT','AND','OR','XOR','NAND','NOR'];
+const IN_COUNT = {IN:0,BTN:0,CLK:0,OUT:1,NOT:1,AND:2,OR:2,XOR:2,NAND:2,NOR:2,SEG7:8,HEX7:4,NUM:8,MAT:20};
+const SIZE = {SEG7:[100,180],HEX7:[80,100],NUM:[150,180],MAT:[220,230]};   // bloki-wyświetlacze: [szer,wys]
+const CLK_PERIOD = 8;                 // przejść symulacji na połowę okresu zegara
+let nodes = [], wires = [], byId = {}, nextId = 1;
+
+function rebuild(){
+  byId = {};
+  for (const n of nodes){ byId[n.id] = n; n.src = new Array(IN_COUNT[n.type]||0).fill(null); }
+  wires = wires.filter(w => byId[w.from] && byId[w.to] && w.pin < byId[w.to].src.length);
+  for (const w of wires) byId[w.to].src[w.pin] = w.from;
+}
+function srcVal(n,i){ const s = n.src[i]; return s == null ? 0 : byId[s].v; }
+function calc(n){
+  const a = srcVal(n,0), b = srcVal(n,1);
+  switch(n.type){
+    case 'OUT': return a;
+    case 'NOT': return a?0:1;
+    case 'AND': return a&b;
+    case 'OR':  return a|b;
+    case 'XOR': return a^b;
+    case 'NAND': return (a&b)?0:1;
+    case 'NOR':  return (a|b)?0:1;
+  }
+  return n.v;
+}
+// jedno przejście: węzły aktualizowane po kolei (dzięki temu zatrzaski SR się stabilizują)
+function pass(){
+  for (const n of nodes){
+    if (n.type==='IN'||n.type==='BTN') continue;
+    if (n.type==='CLK'){ if(!n.stopped){ n.t=(n.t||0)+1; if(n.t>=CLK_PERIOD){ n.t=0; n.v^=1; } } continue; }
+    n.v = calc(n);
+  }
+}
+
+/* ================= PRZYKŁADY ================= */
+// Każdy przykład: make(b) — b.n(nazwa,typ,x,y,etykieta) dodaje element, b.w(z,do,pin) kabel.
+// Przerzutnik D wyzwalany zboczem narastającym (master-slave z NAND-ów).
+function dff(b,p,x,y,d,ck){
+  b.n(p+'nck','NOT',x+100,y+200); b.n(p+'nd','NOT',x+100,y+60);
+  b.n(p+'m1','NAND',x+240,y);     b.n(p+'m2','NAND',x+240,y+80);
+  b.n(p+'mq','NAND',x+380,y);     b.n(p+'mn','NAND',x+380,y+80);
+  b.n(p+'s1','NAND',x+520,y);     b.n(p+'s2','NAND',x+520,y+80);
+  b.n(p+'q','NAND',x+660,y);      b.n(p+'qn','NAND',x+660,y+80);
+  b.w(ck,p+'nck',0); b.w(d,p+'nd',0);
+  b.w(d,p+'m1',0); b.w(p+'nck',p+'m1',1); b.w(p+'nd',p+'m2',0); b.w(p+'nck',p+'m2',1);
+  b.w(p+'m1',p+'mq',0); b.w(p+'mn',p+'mq',1); b.w(p+'m2',p+'mn',0); b.w(p+'mq',p+'mn',1);
+  b.w(p+'mq',p+'s1',0); b.w(ck,p+'s1',1); b.w(p+'mn',p+'s2',0); b.w(ck,p+'s2',1);
+  b.w(p+'s1',p+'q',0); b.w(p+'qn',p+'q',1); b.w(p+'s2',p+'qn',0); b.w(p+'q',p+'qn',1);
+}
+function fullAdder(b,p,x,y,a,bb,ci){      // zwraca nazwy: sumę i przeniesienie
+  b.n(p+'x1','XOR',x+140,y+20); b.n(p+'x2','XOR',x+280,y+20);
+  b.n(p+'a1','AND',x+140,y+100); b.n(p+'a2','AND',x+280,y+100); b.n(p+'o','OR',x+420,y+100);
+  b.w(a,p+'x1',0); b.w(bb,p+'x1',1); b.w(p+'x1',p+'x2',0); b.w(ci,p+'x2',1);
+  b.w(a,p+'a1',0); b.w(bb,p+'a1',1); b.w(p+'x1',p+'a2',0); b.w(ci,p+'a2',1);
+  b.w(p+'a1',p+'o',0); b.w(p+'a2',p+'o',1);
+}
+const EXAMPLES = [
+ {name:'Bramki podstawowe', desc:'Wszystkie bramki obok siebie, sterowane dwoma przełącznikami. Zacznij od klikania A i B.',
+  make(b){
+    b.n('A','IN',40,120,'A'); b.n('B','IN',40,300,'B');
+    GATES.forEach((t,i)=>{ b.n('g'+i,t,240,20+i*80); b.n('o'+i,'OUT',400,20+i*80,t);
+      b.w('A','g'+i,0); if(t!=='NOT') b.w('B','g'+i,1); b.w('g'+i,'o'+i,0); });
+  }},
+ {name:'NAND — bramka uniwersalna', desc:'NOT, AND i OR zbudowane wyłącznie z NAND-ów. Z NAND-ów da się zrobić wszystko.',
+  make(b){
+    b.n('A','IN',40,160,'A'); b.n('B','IN',40,280,'B');
+    b.n('g1','NAND',200,40); b.n('o1','OUT',340,40,'NOT A'); b.w('A','g1',0); b.w('A','g1',1); b.w('g1','o1',0);
+    b.n('g2','NAND',200,140); b.n('g3','NAND',320,140); b.n('o2','OUT',460,140,'AND');
+    b.w('A','g2',0); b.w('B','g2',1); b.w('g2','g3',0); b.w('g2','g3',1); b.w('g3','o2',0);
+    b.n('g4','NAND',200,260); b.n('g5','NAND',200,340); b.n('g6','NAND',340,300); b.n('o3','OUT',480,300,'OR');
+    b.w('A','g4',0); b.w('A','g4',1); b.w('B','g5',0); b.w('B','g5',1); b.w('g4','g6',0); b.w('g5','g6',1); b.w('g6','o3',0);
+  }},
+ {name:'XOR z 4 × NAND', desc:'Klasyczny XOR w czterech NAND-ach. Spróbuj zrobić to samo z mniejszej liczby bramek innych typów.',
+  make(b){
+    b.n('A','IN',40,80,'A'); b.n('B','IN',40,200,'B');
+    b.n('g1','NAND',180,140); b.n('g2','NAND',320,80); b.n('g3','NAND',320,200); b.n('g4','NAND',460,140); b.n('Q','OUT',600,140,'A⊕B');
+    b.w('A','g1',0); b.w('B','g1',1); b.w('A','g2',0); b.w('g1','g2',1); b.w('g1','g3',0); b.w('B','g3',1);
+    b.w('g2','g4',0); b.w('g3','g4',1); b.w('g4','Q',0);
+  }},
+ {name:'Półsumator', desc:'S = A⊕B, C = A·B. Cegiełka każdego sumatora. Rozbuduj do pełnego (dołóż przeniesienie wejściowe).',
+  make(b){
+    b.n('A','IN',40,80,'A'); b.n('B','IN',40,200,'B');
+    b.n('X','XOR',240,60); b.n('N','AND',240,200); b.n('S','OUT',420,60,'S'); b.n('C','OUT',420,200,'C');
+    b.w('A','X',0); b.w('B','X',1); b.w('A','N',0); b.w('B','N',1); b.w('X','S',0); b.w('N','C',0);
+  }},
+ {name:'Pełny sumator', desc:'Dodaje trzy bity: A + B + przeniesienie. Dwa półsumatory i OR.',
+  make(b){
+    b.n('A','IN',40,60,'A'); b.n('B','IN',40,180,'B'); b.n('Ci','IN',40,300,'Cin');
+    fullAdder(b,'f',60,40,'A','B','Ci');
+    b.n('S','OUT',560,60,'S'); b.n('Co','OUT',560,140,'Cout'); b.w('fx2','S',0); b.w('fo','Co',0);
+  }},
+ {name:'Sumator 4-bitowy', desc:'Cztery pełne sumatory z kaskadowym przeniesieniem (ripple carry). Wejścia A0–A3, B0–B3.',
+  make(b){
+    b.n('Cin','IN',40,360,'Cin'); let carry='Cin';
+    for(let i=0;i<4;i++){
+      const y=i*220-40;
+      b.n('A'+i,'IN',40,y+0,'A'+i); b.n('B'+i,'IN',40,y+60,'B'+i);
+      fullAdder(b,'f'+i,60,y,'A'+i,'B'+i,carry);
+      b.n('S'+i,'OUT',560,y+20,'S'+i); b.w('f'+i+'x2','S'+i,0);
+      carry='f'+i+'o';
+    }
+    b.n('Cout','OUT',560,820,'Cout'); b.w(carry,'Cout',0);
+  }},
+ {name:'Multiplekser 2:1', desc:'Q = B gdy S=1, w przeciwnym razie A. Rozbuduj do 4:1.',
+  make(b){
+    b.n('S','IN',40,40,'S'); b.n('A','IN',40,140,'A'); b.n('B','IN',40,240,'B');
+    b.n('nS','NOT',160,20); b.n('a1','AND',300,100); b.n('a2','AND',300,200); b.n('or','OR',440,150); b.n('Q','OUT',580,150,'Q');
+    b.w('S','nS',0); b.w('nS','a1',0); b.w('A','a1',1); b.w('S','a2',0); b.w('B','a2',1);
+    b.w('a1','or',0); b.w('a2','or',1); b.w('or','Q',0);
+  }},
+ {name:'Dekoder 2→4', desc:'Dwa bity wejściowe zapalają dokładnie jedną z czterech diod.',
+  make(b){
+    b.n('A','IN',40,80,'A'); b.n('B','IN',40,200,'B'); b.n('nA','NOT',160,60); b.n('nB','NOT',160,180);
+    b.w('A','nA',0); b.w('B','nB',0);
+    const sel=[['nA','nB'],['nA','B'],['A','nB'],['A','B']];
+    sel.forEach((s,i)=>{ b.n('d'+i,'AND',320,i*80); b.n('o'+i,'OUT',460,i*80,'Y'+i);
+      b.w(s[0],'d'+i,0); b.w(s[1],'d'+i,1); b.w('d'+i,'o'+i,0); });
+  }},
+ {name:'Komparator 1-bit', desc:'Porównuje A i B: większe, równe, mniejsze.',
+  make(b){
+    b.n('A','IN',40,60,'A'); b.n('B','IN',40,200,'B'); b.n('nA','NOT',160,40); b.n('nB','NOT',160,180);
+    b.n('gt','AND',300,40); b.n('lt','AND',300,200); b.n('eq','NOR',440,120);
+    b.n('oG','OUT',580,40,'A>B'); b.n('oE','OUT',580,120,'A=B'); b.n('oL','OUT',580,200,'A<B');
+    b.w('A','nA',0); b.w('B','nB',0); b.w('A','gt',0); b.w('nB','gt',1); b.w('nA','lt',0); b.w('B','lt',1);
+    b.w('gt','eq',0); b.w('lt','eq',1); b.w('gt','oG',0); b.w('eq','oE',0); b.w('lt','oL',0);
+  }},
+ {name:'Większość 2 z 3', desc:'Wyjście = 1, gdy włączone są co najmniej dwa z trzech wejść.',
+  make(b){
+    b.n('A','IN',40,40,'A'); b.n('B','IN',40,140,'B'); b.n('C','IN',40,240,'C');
+    b.n('a1','AND',200,20); b.n('a2','AND',200,120); b.n('a3','AND',200,220);
+    b.n('o1','OR',340,60); b.n('o2','OR',460,120); b.n('Q','OUT',600,120,'Q');
+    b.w('A','a1',0); b.w('B','a1',1); b.w('B','a2',0); b.w('C','a2',1); b.w('A','a3',0); b.w('C','a3',1);
+    b.w('a1','o1',0); b.w('a2','o1',1); b.w('o1','o2',0); b.w('a3','o2',1); b.w('o2','Q',0);
+  }},
+ {name:'Parzystość 4 bitów', desc:'Łańcuch XOR-ów: dioda świeci, gdy włączona jest nieparzysta liczba wejść.',
+  make(b){
+    ['A','B','C','D'].forEach((l,i)=>b.n(l,'IN',40,40+i*100,l));
+    b.n('x1','XOR',200,60); b.n('x2','XOR',200,260); b.n('x3','XOR',340,160); b.n('P','OUT',480,160,'nieparz.');
+    b.w('A','x1',0); b.w('B','x1',1); b.w('C','x2',0); b.w('D','x2',1); b.w('x1','x3',0); b.w('x2','x3',1); b.w('x3','P',0);
+  }},
+ {name:'Zatrzask SR (NOR)', desc:'Najprostsza pamięć 1 bitu. S (przycisk chwilowy) ustawia Q=1, R zeruje. Puść oba — układ pamięta. (Nie włączaj S i R naraz.)',
+  make(b){
+    b.n('R','BTN',40,60,'R'); b.n('S','BTN',40,220,'S'); b.n('N1','NOR',240,60); b.n('N2','NOR',240,220);
+    b.n('Q','OUT',420,60,'Q'); b.n('nQ','OUT',420,220,'¬Q');
+    b.w('R','N1',0); b.w('N2','N1',1); b.w('S','N2',0); b.w('N1','N2',1); b.w('N1','Q',0); b.w('N2','nQ',0);
+  }},
+ {name:'Zatrzask D (bramkowany)', desc:'Gdy E=1, Q podąża za D. Gdy E=0, Q zapamiętuje ostatnią wartość.',
+  make(b){
+    b.n('D','IN',40,80,'D'); b.n('E','IN',40,220,'E'); b.n('nd','NOT',160,80);
+    b.n('s1','NAND',280,60); b.n('r1','NAND',280,200); b.n('q','NAND',420,60); b.n('nq','NAND',420,200);
+    b.n('Q','OUT',560,60,'Q'); b.n('nQ','OUT',560,200,'¬Q');
+    b.w('D','nd',0); b.w('D','s1',0); b.w('E','s1',1); b.w('nd','r1',0); b.w('E','r1',1);
+    b.w('s1','q',0); b.w('nq','q',1); b.w('r1','nq',0); b.w('q','nq',1); b.w('q','Q',0); b.w('nq','nQ',0);
+  }},
+ {name:'Przerzutnik D (zbocze)', desc:'Dwa zatrzaski master-slave. Q przejmuje D tylko w chwili, gdy CK zmienia się 0→1. Przełączaj CK ręcznie.',
+  make(b){
+    b.n('D','IN',40,40,'D'); b.n('CK','IN',40,260,'CK');
+    dff(b,'f',160,40,'D','CK');
+    b.n('Q','OUT',900,40,'Q'); b.n('nQ','OUT',900,120,'¬Q'); b.w('fq','Q',0); b.w('fqn','nQ',0);
+  }},
+ {name:'Dzielnik częstotliwości ÷2', desc:'Przerzutnik D z podłączonym ¬Q do D. Zegar (CLK) tyka sam; Q zmienia się co drugi takt. Kliknij CLK, by zatrzymać/wznowić.',
+  make(b){
+    b.n('CK','CLK',40,260,'CLK');
+    dff(b,'f',160,40,'fqn','CK');
+    b.n('Q','OUT',900,40,'Q'); b.w('fq','Q',0);
+  }},
+ {name:'Licznik 3-bitowy', desc:'Trzy przerzutniki w kaskadzie liczą takty zegara 0–7 (Q0 = najmłodszy bit). Dodaj dekoder albo wyświetlacz!',
+  make(b){
+    b.n('CK','CLK',40,100,'CLK');
+    for(let i=0;i<3;i++){
+      dff(b,'f'+i,160,i*280,'f'+i+'qn', i?'f'+(i-1)+'qn':'CK');
+      b.n('Q'+i,'OUT',900,i*280,'Q'+i); b.w('f'+i+'q','Q'+i,0);
+    }
+  }},
+ {name:'Generator (pierścień NOT)', desc:'Trzy inwertery w pętli drgają same. Szybki oscylator bez zegara.',
+  make(b){
+    b.n('n1','NOT',200,100); b.n('n2','NOT',320,100); b.n('n3','NOT',440,100); b.n('Q','OUT',580,100,'~');
+    b.w('n3','n1',0); b.w('n1','n2',0); b.w('n2','n3',0); b.w('n3','Q',0);
+  }},
+
+ {name:'Konwerter binarny → dziesiętny', desc:'Osiem przełączników (wagi 128…1) i blok konwertera, który pokazuje wartość dziesiętną 0–255 oraz zapis HEX i BIN. Domyślnie 42 = 00101010.',
+  make(b){
+    for(let i=0;i<8;i++) b.n('B'+i,'IN',40,i*50,String(1<<(7-i)),[2,4,6].includes(i)?1:0);
+    b.n('N','NUM',260,60);
+    for(let i=0;i<8;i++) b.w('B'+i,'N',i);
+  }},
+ {name:'Wyświetlacz HEX (4 bity)', desc:'Cztery przełączniki wyświetlają cyfrę szesnastkową 0–F na wyświetlaczu 7-segmentowym, a jednocześnie wartość dziesiętną 0–15 na konwerterze.',
+  make(b){
+    ['8','4','2','1'].forEach((l,i)=>b.n('B'+i,'IN',40,i*60,l));
+    b.n('H','HEX7',260,60); b.n('N','NUM',440,20);
+    for(let i=0;i<4;i++){ b.w('B'+i,'H',i); b.w('B'+i,'N',4+i); }
+  }},
+ {name:'Konwerter 4-bit → 2 cyfry (BCD)', desc:'Zamienia liczbę 0–15 na dwie cyfry dziesiętne z samych bramek: dziesiątki (tylko bit 1) i jedności (0–9). Przełączaj bity i patrz na dwa wyświetlacze.',
+  make(b){
+    ['B3','B2','B1','B0'].forEach((l,i)=>b.n(l,'IN',40,40+i*80,l+' ('+(8>>i)+')'));
+    b.n('n3','NOT',180,0); b.n('or1','OR',180,120); b.n('T','AND',320,60); b.n('x1','XOR',320,180);
+    b.n('o2a','OR',320,280); b.n('a2','AND',460,280); b.n('nr','NOR',320,380); b.n('a3','AND',460,380);
+    b.w('B3','n3',0); b.w('B2','or1',0); b.w('B1','or1',1); b.w('B3','T',0); b.w('or1','T',1);
+    b.w('B1','x1',0); b.w('T','x1',1); b.w('n3','o2a',0); b.w('B1','o2a',1); b.w('B2','a2',0); b.w('o2a','a2',1);
+    b.w('B2','nr',0); b.w('B1','nr',1); b.w('B3','a3',0); b.w('nr','a3',1);
+    b.n('Hj','HEX7',640,300); b.n('Hd','HEX7',640,60);
+    b.w('a3','Hj',0); b.w('a2','Hj',1); b.w('x1','Hj',2); b.w('B0','Hj',3);
+    b.w('T','Hd',3);
+  }},
+ {name:'Dekoder 2 bity → 7-seg (z bramek)', desc:'Każdy segment sterowany własną bramką: dwa bity A,B wyświetlają cyfry 0–3. Rozbuduj do 0–9!',
+  make(b){
+    b.n('A','IN',40,40,'A (2)'); b.n('B','IN',40,160,'B (1)'); b.n('nB','NOT',160,200);
+    b.n('oa','OR',300,20); b.n('ob','OR',300,100); b.n('nc','NAND',300,180); b.n('nf','NOR',300,260);
+    b.w('B','nB',0); b.w('A','oa',0); b.w('nB','oa',1); b.w('B','ob',0); b.w('nB','ob',1);
+    b.w('A','nc',0); b.w('nB','nc',1); b.w('A','nf',0); b.w('B','nf',1);
+    b.n('D','SEG7',520,0);
+    b.w('oa','D',0); b.w('ob','D',1); b.w('nc','D',2); b.w('oa','D',3); b.w('nB','D',4); b.w('nf','D',5); b.w('A','D',6);
+  }},
+ {name:'Wyświetlacz 7-seg (ręczny)', desc:'Każdy segment to osobny przełącznik: a–g oraz kropka dp. Zapal „0” i zbuduj z tego własny dekoder.',
+  make(b){
+    ['a','b','c','d','e','f','g','dp'].forEach((l,i)=>b.n('s'+i,'IN',40,i*50,l,i<6?1:0));
+    b.n('D','SEG7',260,100);
+    for(let i=0;i<8;i++) b.w('s'+i,'D',i);
+  }},
+ {name:'Matryca 10×10 (ręczna)', desc:'Piksel (wiersz, kolumna) świeci, gdy włączone są jednocześnie jego wiersz R i kolumna C. Rysuj prostokąty i krzyże przełącznikami.',
+  make(b){
+    for(let i=0;i<10;i++) b.n('R'+i,'IN',40,i*50,'R'+i,[3,4,5].includes(i)?1:0);
+    b.n('M','MAT',300,130);
+    for(let j=0;j<10;j++) b.n('C'+j,'IN',240+j*50,420,'C'+j,[3,4,5].includes(j)?1:0);
+    for(let i=0;i<10;i++){ b.w('R'+i,'M',i); b.w('C'+i,'M',10+i); }
+  }},
+ {name:'Licznik 4-bit → 7-seg i dziesiętnie', desc:'Czterobitowy licznik (przerzutniki D) liczy takty zegara 0–15 i pokazuje wynik na wyświetlaczu HEX oraz w konwerterze dziesiętnym.',
+  make(b){
+    b.n('CK','CLK',40,100,'CLK');
+    for(let i=0;i<4;i++) dff(b,'f'+i,160,i*280,'f'+i+'qn', i?'f'+(i-1)+'qn':'CK');
+    b.n('H','HEX7',960,100); b.n('N','NUM',1100,100);
+    for(let i=0;i<4;i++){ b.w('f'+(3-i)+'q','H',i); b.w('f'+(3-i)+'q','N',4+i); }
+  }},
+ {name:'Skaner wierszy (licznik + dekoder)', desc:'Licznik 3-bitowy i dekoder 3→8 przesuwają świecący wiersz po matrycy LED. Wszystkie kolumny trzyma włączone przełącznik VCC.',
+  make(b){
+    b.n('CK','CLK',40,100,'CLK');
+    for(let i=0;i<3;i++) dff(b,'f'+i,160,i*280,'f'+i+'qn', i?'f'+(i-1)+'qn':'CK');
+    b.n('M','MAT',1300,0); b.n('V','IN',1380,320,'VCC',1);
+    for(let r=0;r<8;r++){
+      const s=k=>'f'+k+((r>>k)&1?'q':'qn');
+      b.n('da'+r,'AND',1020,r*80); b.n('db'+r,'AND',1140,r*80);
+      b.w(s(0),'da'+r,0); b.w(s(1),'da'+r,1); b.w('da'+r,'db'+r,0); b.w(s(2),'db'+r,1); b.w('db'+r,'M',r);
+    }
+    for(let j=0;j<10;j++) b.w('V','M',10+j);
+  }},
+];
+
+/* ================= STAN UI ================= */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W=0,H=0, ox=0, oy=0;
+let tool = null, drag = null, mouse = {x:0,y:0}, hoverPin = null, paused = false;
+let curEx = null;
+const store = (k,v)=>{ try{ if(v===undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k,JSON.stringify(v)); }catch(e){ return null; } };
+const $ = id => document.getElementById(id);
+
+function resize(){
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio||1;
+  W = r.width; H = r.height; cv.width = W*d; cv.height = H*d;
+  ctx.setTransform(d,0,0,d,0,0);
+}
+window.addEventListener('resize', resize);
+new ResizeObserver(()=>resize()).observe(document.getElementById('main'));
+
+/* ================= GEOMETRIA ================= */
+const isSrc = n => n.type==='IN' || n.type==='BTN' || n.type==='CLK';
+const nw = n => SIZE[n.type] ? SIZE[n.type][0] : ((isSrc(n)||n.type==='OUT') ? 40 : 60);
+const nh = n => SIZE[n.type] ? SIZE[n.type][1] : 40;
+function inPins(n){
+  const c = IN_COUNT[n.type]||0, r=[];
+  if (n.type==='MAT'){
+    for (let k=0;k<10;k++) r.push({x:n.x,y:n.y+20+k*20});
+    for (let j=0;j<10;j++) r.push({x:n.x+20+j*20,y:n.y+230,d:[0,1]});
+    return r;
+  }
+  if (SIZE[n.type]){ for (let k=0;k<c;k++) r.push({x:n.x,y:n.y+20+k*20}); return r; }
+  if (c===1) return [{x:n.x,y:n.y+20}];
+  if (c===2) return [{x:n.x,y:n.y+10},{x:n.x,y:n.y+30}];
+  return [];
+}
+function outPin(n){ return (n.type==='OUT'||SIZE[n.type]) ? null : {x:n.x+nw(n),y:n.y+20}; }
+function pinAt(p){
+  for (let i=nodes.length-1;i>=0;i--){
+    const n=nodes[i], o=outPin(n);
+    if (o && Math.hypot(o.x-p.x,o.y-p.y)<10) return {node:n,kind:'out',idx:0,x:o.x,y:o.y};
+    const ps=inPins(n);
+    for (let k=0;k<ps.length;k++) if (Math.hypot(ps[k].x-p.x,ps[k].y-p.y)<10) return {node:n,kind:'in',idx:k,x:ps[k].x,y:ps[k].y};
+  }
+  return null;
+}
+function nodeAt(p){
+  for (let i=nodes.length-1;i>=0;i--){ const n=nodes[i];
+    if (p.x>=n.x&&p.x<=n.x+nw(n)&&p.y>=n.y&&p.y<=n.y+nh(n)) return n; }
+  return null;
+}
+function wirePts(w){
+  const a=byId[w.from], b=byId[w.to]; if(!a||!b) return null;
+  const p1=outPin(a), p2=inPins(b)[w.pin]; if(!p2) return null;
+  const dx=Math.max(40,Math.abs(p2.x-p1.x)/2), d=p2.d||[-1,0], off=d[0]?dx:40;
+  return [p1,{x:p1.x+dx,y:p1.y},{x:p2.x+d[0]*off,y:p2.y+d[1]*off},p2];
+}
+function bez(c,t){ const u=1-t;
+  return {x:u*u*u*c[0].x+3*u*u*t*c[1].x+3*u*t*t*c[2].x+t*t*t*c[3].x,
+          y:u*u*u*c[0].y+3*u*u*t*c[1].y+3*u*t*t*c[2].y+t*t*t*c[3].y}; }
+function wireAt(p){
+  for (let i=wires.length-1;i>=0;i--){
+    const c=wirePts(wires[i]); if(!c) continue;
+    for (let t=0;t<=1;t+=0.04){ const q=bez(c,t); if(Math.hypot(q.x-p.x,q.y-p.y)<7) return wires[i]; }
+  }
+  return null;
+}
+
+/* ================= EDYCJA ================= */
+const snap = v => Math.round(v/20)*20;
+const gateCount = () => nodes.filter(n=>GATES.includes(n.type)).length;
+function addNode(type,x,y,label){
+  const n={id:nextId++,type,x:snap(x),y:snap(y),v:0,t:0,stopped:false,src:[null,null],label:label||''};
+  nodes.push(n); return n;
+}
+function connect(from,to,pin){
+  wires = wires.filter(w=>!(w.to===to&&w.pin===pin));
+  wires.push({from,to,pin}); rebuild(); changed();
+}
+function delNode(n){
+  nodes = nodes.filter(m=>m!==n); wires = wires.filter(w=>w.from!==n.id&&w.to!==n.id);
+  rebuild(); changed();
+}
+function delWire(w){ wires = wires.filter(x=>x!==w); rebuild(); changed(); }
+function changed(){ store('lg_sandbox',snapshot()); renderInfo(); }
+function snapshot(){ return {n:nodes.map(n=>({id:n.id,type:n.type,x:n.x,y:n.y,label:n.label})),w:wires.map(w=>({...w})),id:nextId}; }
+function restore(s){
+  nodes=s.n.map(n=>({...n,v:0,t:0,stopped:false,src:[null,null]})); wires=s.w.map(w=>({...w})); nextId=s.id; rebuild();
+}
+let zoom = 1;
+function fitView(){
+  if(!nodes.length){ ox=oy=0; zoom=1; return; }
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const n of nodes){ x0=Math.min(x0,n.x-10); y0=Math.min(y0,n.y); x1=Math.max(x1,n.x+nw(n)+10); y1=Math.max(y1,n.y+nh(n)+14); }
+  const bw=x1-x0, bh=y1-y0;
+  zoom = Math.max(0.25,Math.min(1,(W-50)/bw,(H-50)/bh));
+  ox = Math.round((W-bw*zoom)/2 - x0*zoom); oy = Math.round((H-bh*zoom)/2 - y0*zoom);
+}
+function zoomBy(k,cx,cy){
+  cx = cx===undefined ? W/2 : cx; cy = cy===undefined ? H/2 : cy;
+  const nz=Math.max(0.2,Math.min(3,zoom*k)), wx=(cx-ox)/zoom, wy=(cy-oy)/zoom;
+  zoom=nz; ox=cx-wx*nz; oy=cy-wy*nz;
+}
+function loadExample(i){
+  store('lg_prev',snapshot());
+  const e=EXAMPLES[i]; nodes=[];wires=[];nextId=1;
+  const m={}, pend=[];
+  e.make({ n(name,type,x,y,label,v){ m[name]=addNode(type,x,y,label); if(v) m[name].v=v; }, w(a,b,pin){ pend.push([a,b,pin]); } });
+  for(const [a,b,pin] of pend){ if(!m[a]||!m[b]) throw new Error('zły kabel '+a+'>'+b+' w '+e.name);
+    wires.push({from:m[a].id,to:m[b].id,pin}); }
+  rebuild(); curEx=i; fitView(); changed(); renderPalette();
+  for(let k=0;k<30;k++) pass();
+}
+function clearAll(){ store('lg_prev',snapshot()); nodes=[];wires=[];nextId=1;curEx=null;rebuild();changed(); }
+function undoLoad(){ const s=store('lg_prev'); if(!s) return; store('lg_prev',snapshot()); restore(s); curEx=null; changed(); }
+
+/* ================= PANELE ================= */
+const PAL = ['IN','BTN','CLK',...GATES,'OUT','SEG7','HEX7','NUM','MAT'];
+const PNAME = {IN:'Przełącznik (IN)',BTN:'Przycisk chwilowy',CLK:'Zegar (CLK)',OUT:'Dioda (OUT)',SEG7:'Wyświetlacz 7-seg (8 pinów)',HEX7:'Wyświetlacz HEX (4 bity)',NUM:'Konwerter bin→dec (8 bit)',MAT:'Matryca LED 10×10'};
+const accel = i => i<10 ? (i+1)%10 : '';
+function pickTool(t){ tool = tool===t?null:t; renderPalette(); }
+function renderPalette(){
+  const ex=$('examples'); ex.innerHTML='';
+  EXAMPLES.forEach((e,i)=>{ const d=document.createElement('div'); d.className='item'+(curEx===i?' sel':'');
+    d.textContent=e.name; d.onclick=()=>loadExample(i); ex.appendChild(d); });
+  const el=$('palette'); el.innerHTML='';
+  PAL.forEach((t,i)=>{ const d=document.createElement('div'); d.className='item'+(tool===t?' sel':'');
+    d.innerHTML=(PNAME[t]||t)+'<span class="ac">'+accel(i)+'</span>'; d.onclick=()=>pickTool(t); el.appendChild(d); });
+  renderToolbar();
+}
+function renderInfo(){
+  const e = curEx!==null ? EXAMPLES[curEx] : null;
+  $('info').innerHTML=`<h1>${e?e.name:'Sandbox'}</h1>
+    <p>${e?e.desc:'Wybierz przykład z listy albo buduj od zera.'}</p>
+    <p class="dim">Zmiany w przykładzie zapisują się automatycznie.</p>
+    <h2>Sterowanie</h2>
+    <p><kbd>LPM</kbd> z pinu na pin — kabel</p>
+    <p><kbd>LPM</kbd> przełącznik: przełącz · przycisk: trzymaj · zegar: stop/start</p>
+    <p><kbd>LPM</kbd> na bramce + przeciągnij — przesuń</p>
+    <p><kbd>PPM</kbd> usuń bramkę lub kabel</p>
+    <p><kbd>LPM</kbd> w tło + przeciągnij — przesuń widok</p>
+    <p><kbd>1</kbd>–<kbd>0</kbd> element, <kbd>Esc</kbd> anuluj, <kbd>Spacja</kbd> pauza</p>`;
+}
+
+/* ================= MENU / PASEK NARZĘDZI / OKNA ================= */
+let showGrid = true, simMs = 60, timer = null;
+function setSpeed(ms){ simMs=ms; clearInterval(timer); timer=setInterval(()=>{ if(!paused) pass(); },simMs); }
+function resetSim(){ for(const n of nodes){ if(n.type!=='IN'&&n.type!=='BTN') n.v=0; n.t=0; } for(let i=0;i<30;i++) pass(); }
+function togglePane(id){ $(id).style.display = $(id).style.display==='none' ? '' : 'none'; resize(); }
+function toggleFs(){ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(()=>{}); }
+function dlg(title,html){ $('dlgT').textContent=title; $('dlgC').innerHTML=html; $('dlgbg').style.display='flex'; }
+$('dlgOk').onclick=()=>{ $('dlgbg').style.display='none'; };
+function helpDlg(){ dlg('Sterowanie',`<h3>Jak używać LogicLab</h3>
+  <p>Wybierz element z listy (lub klawiszem 1–0) i kliknij na płaszczyźnie, aby go postawić. Aby połączyć, przeciągnij kabel z wyjścia (prawa strona) do wejścia (lewa strona) — albo odwrotnie.</p>
+  <p>Prawy przycisk myszy usuwa bramkę lub kabel pod kursorem. Przeciągnięcie tła przesuwa widok, kółko myszy zmienia powiększenie.</p>
+  <p>Przełącznik trzyma stan, przycisk daje 1 tylko gdy go trzymasz, zegar tyka sam (kliknij, by zatrzymać).</p>`); }
+function aboutDlg(){ dlg('O programie LogicLab',`<h3>LogicLab 1.0</h3><p>Symulator układów logicznych z biblioteką przykładów do rozbudowy.</p><p class="dim">Bramki: NOT, AND, OR, XOR, NAND, NOR · Źródła: przełącznik, przycisk, zegar.</p>`); }
+function download(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); }
+function saveFile(){ download(new Blob([JSON.stringify({format:'logiclab',...snapshot()})],{type:'application/json'}),'uklad.logiclab.json'); }
+function openFile(){
+  const i=document.createElement('input'); i.type='file'; i.accept='.json,.logiclab';
+  i.onchange=()=>{ const f=i.files[0]; if(!f) return; f.text().then(t=>{ try{ const s=JSON.parse(t);
+      if(!s.n||!s.w) throw 0; store('lg_prev',snapshot()); restore(s); curEx=null; fitView(); changed(); renderPalette(); }
+    catch(e){ dlg('Błąd','<p>Nie udało się wczytać pliku — to nie wygląda na układ LogicLab.</p>'); } }); };
+  i.click();
+}
+function exportPng(){ cv.toBlob(b=>download(b,'uklad.png')); }
+
+const MENUS = {
+  'Plik':()=>[{t:'Nowy',k:'Ctrl+N',f:clearAll},{t:'Otwórz z pliku…',k:'Ctrl+O',f:openFile},{t:'Zapisz do pliku…',k:'Ctrl+S',f:saveFile},
+    {t:'Eksportuj jako PNG…',f:exportPng},'-',{t:'Pełny ekran',k:'F11',f:toggleFs}],
+  'Edycja':()=>[{t:'Cofnij wczytanie / czyszczenie',k:'Ctrl+Z',f:undoLoad},{t:'Wyczyść płaszczyznę',f:clearAll},'-',
+    {t:'Wyzeruj stan układu',f:resetSim}],
+  'Widok':()=>[{t:'Dopasuj widok',k:'Ctrl+0',f:fitView},{t:'Siatka',chk:showGrid,f:()=>showGrid=!showGrid},'-',{t:'Powiększ',k:'Kółko ↑',f:()=>zoomBy(1.25)},{t:'Pomniejsz',k:'Kółko ↓',f:()=>zoomBy(0.8)},{t:'Zoom 100%',f:()=>zoomBy(1/zoom)},'-',
+    {t:'Panel przykładów',chk:$('left').style.display!=='none',f:()=>togglePane('left')},
+    {t:'Panel szczegółów',chk:$('right').style.display!=='none',f:()=>togglePane('right')}],
+  'Symulacja':()=>[{t:'Pauza',k:'Spacja',chk:paused,f:()=>paused=!paused},{t:'Jeden krok',k:'.',f:()=>pass()},'-',
+    {t:'Wolno',chk:simMs===150,f:()=>setSpeed(150)},{t:'Normalnie',chk:simMs===60,f:()=>setSpeed(60)},{t:'Szybko',chk:simMs===20,f:()=>setSpeed(20)}],
+  'Przykłady':()=>EXAMPLES.map((e,i)=>({t:e.name,chk:curEx===i,f:()=>loadExample(i)})),
+  'Elementy':()=>PAL.map((t,i)=>({t:PNAME[t]||t,k:String(accel(i)),chk:tool===t,f:()=>pickTool(t)})),
+  'Pomoc':()=>[{t:'Sterowanie',k:'F1',f:helpDlg},{t:'O programie',f:aboutDlg}],
+};
+let openMenu = null;
+function closeMenu(){ openMenu=null; $('dd').style.display='none'; document.querySelectorAll('.mb').forEach(m=>m.classList.remove('open')); }
+function showMenu(name,el){
+  closeMenu(); openMenu=name; el.classList.add('open');
+  const dd=$('dd'); dd.innerHTML='';
+  MENUS[name]().forEach(it=>{
+    if(it==='-'){ const s=document.createElement('div'); s.className='ms'; dd.appendChild(s); return; }
+    const d=document.createElement('div'); d.className='mi';
+    d.innerHTML=`<span class="ck">${it.chk?'✓':''}</span><span>${it.t}</span><span class="ac">${it.k||''}</span>`;
+    d.onmousedown=e=>e.stopPropagation();
+    d.onclick=()=>{ closeMenu(); it.f(); renderPalette(); };
+    dd.appendChild(d);
+  });
+  const r=el.getBoundingClientRect(); dd.style.left=r.left+'px'; dd.style.top=(r.bottom-1)+'px'; dd.style.display='block';
+}
+Object.keys(MENUS).forEach(name=>{
+  const m=document.createElement('div'); m.className='mb'; m.textContent=name;
+  m.onmousedown=e=>{ e.stopPropagation(); if(openMenu===name) closeMenu(); else showMenu(name,m); };
+  m.onmouseenter=()=>{ if(openMenu && openMenu!==name) showMenu(name,m); };
+  $('menubar').appendChild(m);
+});
+document.addEventListener('mousedown',e=>{ if(openMenu && !e.target.closest('#dd')) closeMenu(); });
+function renderToolbar(){
+  const tb=$('toolbar'); tb.innerHTML='';
+  const add=(txt,fn,on)=>{ const b=document.createElement('button'); b.className='tb'+(on?' on':''); b.innerHTML=txt; b.onclick=()=>{fn();renderToolbar();}; tb.appendChild(b); };
+  const sep=()=>{ const s=document.createElement('div'); s.className='sep'; tb.appendChild(s); };
+  add('📄 Nowy',clearAll); add('📂 Otwórz',openFile); add('💾 Zapisz',saveFile); sep();
+  add(paused?'▶ Wznów':'⏸ Pauza',()=>paused=!paused,paused); add('⏭ Krok',()=>pass()); add('↺ Wyzeruj',resetSim); sep();
+  add('⤢ Dopasuj widok',fitView); add('↶ Cofnij',undoLoad);
+}
+$('cMax').onclick=toggleFs; $('cX').onclick=()=>window.close(); $('cMin').onclick=()=>{};
+let lastStatus='';
+function updateStatus(){
+  const s=`<span>${paused?'Symulacja wstrzymana':'Symulacja działa'}</span><span>Bramek: ${gateCount()}</span><span>Kabli: ${wires.length}</span><span>Zoom: ${Math.round(zoom*100)}%</span>`+
+    `<span>${tool?'Stawianie: '+(PNAME[tool]||tool)+' (PPM — anuluj)':'Gotowy'}</span><span>${curEx!==null?EXAMPLES[curEx].name:'Własny układ'}</span>`;
+  if(s!==lastStatus){ $('status').innerHTML=s; lastStatus=s; }
+}
+
+/* ================= RYSOWANIE ================= */
+const COL={NOT:'#2f9e5f',AND:'#d9822b',OR:'#2a9fb0',XOR:'#b8458f',NAND:'#d65a45',NOR:'#8fa82e'};
+const sigCol = v => v?'#ffd23f':'#44536f';
+function shade(hex,a){ const n=parseInt(hex.slice(1),16), f=v=>Math.max(0,Math.min(255,v+a));
+  return `rgb(${f(n>>16)},${f((n>>8)&255)},${f(n&255)})`; }
+function glossRect(x,y,w,h,r,base){
+  const g=ctx.createLinearGradient(0,y,0,y+h);
+  g.addColorStop(0,shade(base,70)); g.addColorStop(.48,shade(base,20)); g.addColorStop(.52,shade(base,-15)); g.addColorStop(1,shade(base,-45));
+  ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.65)'; ctx.lineWidth=1.3; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(x+1.5,y+1.5,w-3,h-3,Math.max(1,r-1.5)); ctx.stroke();
+}
+function bezel(n){
+  const g=ctx.createLinearGradient(0,n.y,0,n.y+40);
+  g.addColorStop(0,'#fbfcfe'); g.addColorStop(.5,'#c5ccd8'); g.addColorStop(1,'#8892a3');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(n.x,n.y,40,40,9); ctx.fill();
+  ctx.strokeStyle='#222a38'; ctx.lineWidth=1.3; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(n.x+1.5,n.y+1.5,37,37,8); ctx.stroke();
+}
+function sphere(cx,cy,r,hi,mid,lo,glow){
+  if (glow){ ctx.shadowColor=glow; ctx.shadowBlur=16; }
+  const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r);
+  g.addColorStop(0,hi); g.addColorStop(.55,mid); g.addColorStop(1,lo);
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.55)'; ctx.beginPath(); ctx.ellipse(cx-r*.25,cy-r*.45,r*.5,r*.28,-.4,0,7); ctx.fill();
+}
+const HEXSEG=[0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,0x7F,0x6F,0x77,0x7C,0x39,0x5E,0x79,0x71];
+function digit(x0,y0,bw,bh,mask,on,off,dp){
+  const t=Math.max(3,bw*0.17), mid=y0+bh/2, hl=bw-t*1.5, vl=bh/2-t*1.3;
+  const hs=(cx,cy,len)=>{ const l=len/2; ctx.beginPath(); ctx.moveTo(cx-l,cy); ctx.lineTo(cx-l+t*.6,cy-t/2); ctx.lineTo(cx+l-t*.6,cy-t/2); ctx.lineTo(cx+l,cy); ctx.lineTo(cx+l-t*.6,cy+t/2); ctx.lineTo(cx-l+t*.6,cy+t/2); ctx.closePath(); };
+  const vs=(cx,cy,len)=>{ const l=len/2; ctx.beginPath(); ctx.moveTo(cx,cy-l); ctx.lineTo(cx+t/2,cy-l+t*.6); ctx.lineTo(cx+t/2,cy+l-t*.6); ctx.lineTo(cx,cy+l); ctx.lineTo(cx-t/2,cy+l-t*.6); ctx.lineTo(cx-t/2,cy-l+t*.6); ctx.closePath(); };
+  const P=[[hs,x0+bw/2,y0+t/2,hl],[vs,x0+bw-t/2,y0+bh/4,vl],[vs,x0+bw-t/2,y0+bh*3/4,vl],[hs,x0+bw/2,y0+bh-t/2,hl],
+           [vs,x0+t/2,y0+bh*3/4,vl],[vs,x0+t/2,y0+bh/4,vl],[hs,x0+bw/2,mid,hl]];
+  P.forEach((p,i)=>{ const lit=(mask>>i)&1; p[0](p[1],p[2],p[3]);
+    if(lit){ ctx.shadowColor=on; ctx.shadowBlur=10; } ctx.fillStyle=lit?on:off; ctx.fill(); ctx.shadowBlur=0; });
+  if (dp!==undefined){ const lit=dp; ctx.beginPath(); ctx.arc(x0+bw+t*.9,y0+bh-t*.4,t*.5,0,7);
+    if(lit){ ctx.shadowColor=on; ctx.shadowBlur=10; } ctx.fillStyle=lit?on:off; ctx.fill(); ctx.shadowBlur=0; }
+}
+function drawDisplay(n){
+  const w=nw(n), h=nh(n);
+  const g=ctx.createLinearGradient(0,n.y,0,n.y+h); g.addColorStop(0,'#4a5262'); g.addColorStop(.5,'#2b313d'); g.addColorStop(1,'#161a22');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(n.x,n.y,w,h,8); ctx.fill();
+  ctx.strokeStyle='#05070a'; ctx.lineWidth=1.4; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(n.x+1.5,n.y+1.5,w-3,h-3,7); ctx.stroke();
+  const label=(txt,x,y,al)=>{ ctx.fillStyle='#b9c6dc'; ctx.font='9px "Segoe UI",sans-serif'; ctx.textAlign=al||'left'; ctx.fillText(txt,x,y); };
+  const screen=(x,y,ww,hh)=>{ ctx.fillStyle='#050607'; ctx.beginPath(); ctx.roundRect(x,y,ww,hh,4); ctx.fill();
+    ctx.strokeStyle='#000'; ctx.lineWidth=1; ctx.stroke(); ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x+1,y+1,ww-2,hh/2); };
+  const RED='#ff3b30', REDOFF='#2b1210';
+  if (n.type==='SEG7'){
+    ['a','b','c','d','e','f','g','dp'].forEach((l,k)=>label(l,n.x+7,n.y+20+k*20));
+    screen(n.x+26,n.y+12,w-34,h-24);
+    let m=0; for(let k=0;k<7;k++) m|=srcVal(n,k)<<k;
+    digit(n.x+40,n.y+36,38,108,m,RED,REDOFF,srcVal(n,7));
+  } else if (n.type==='HEX7'){
+    ['8','4','2','1'].forEach((l,k)=>label(l,n.x+8,n.y+20+k*20));
+    screen(n.x+24,n.y+10,w-30,h-20);
+    let v=0; for(let k=0;k<4;k++) v|=srcVal(n,k)<<(3-k);
+    digit(n.x+34,n.y+22,28,56,HEXSEG[v],RED,REDOFF);
+  } else if (n.type==='NUM'){
+    ['128','64','32','16','8','4','2','1'].forEach((l,k)=>label(l,n.x+6,n.y+20+k*20));
+    screen(n.x+34,n.y+12,w-42,h-24);
+    let v=0; for(let k=0;k<8;k++) v|=srcVal(n,k)<<(7-k);
+    const AMB='#ffb300', AMBOFF='#2a1e08', ds=[Math.floor(v/100),Math.floor(v/10)%10,v%10];
+    ds.forEach((d,i)=>{ const blank = (i===0&&v<100)||(i===1&&v<10); digit(n.x+42+i*33,n.y+26,26,56,blank?0:HEXSEG[d],AMB,AMBOFF); });
+    label('HEX '+v.toString(16).toUpperCase().padStart(2,'0'),n.x+40,n.y+112);
+    label('BIN '+v.toString(2).padStart(8,'0'),n.x+40,n.y+128);
+  } else if (n.type==='MAT'){
+    screen(n.x+10,n.y+10,200,210);
+    for(let r=0;r<10;r++) for(let c=0;c<10;c++){
+      const lit=srcVal(n,r)&srcVal(n,10+c), cx=n.x+20+c*20, cy=n.y+20+r*20;
+      if(lit){ ctx.shadowColor='#ff4a30'; ctx.shadowBlur=9; }
+      ctx.fillStyle=lit?'#ff5a40':'#2b1512'; ctx.beginPath(); ctx.arc(cx,cy,7,0,7); ctx.fill(); ctx.shadowBlur=0;
+      if(lit){ ctx.fillStyle='rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(cx-2,cy-2,2.2,0,7); ctx.fill(); }
+    }
+    for(let c=0;c<10;c++) label('C'+c,n.x+20+c*20,n.y+h-6,'center');
+    label('wiersze R0–R9 ◄',n.x+14,n.y-4);
+  }
+}
+function drawNode(n){
+  const h=40, cx=n.x+20, cy=n.y+20;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  if (n.type==='IN'){
+    bezel(n);
+    ctx.fillStyle=n.v?'#2f9e3f':'#3a4050'; ctx.beginPath(); ctx.roundRect(n.x+7,n.y+13,26,14,7); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.25)'; ctx.beginPath(); ctx.roundRect(n.x+8,n.y+14,24,5,3); ctx.fill();
+    sphere(n.v?n.x+27:n.x+13,cy,6,'#ffffff','#cfd6e2','#7d889a');
+  } else if (n.type==='BTN'){
+    bezel(n);
+    if (n.v) sphere(cx,cy+1,11,'#ffe9a8','#ffd23f','#b87a00','#ffd23f');
+    else sphere(cx,cy,11,'#ff9a8a','#d13a2a','#6e1208');
+  } else if (n.type==='OUT'){
+    bezel(n);
+    if (n.v) sphere(cx,cy,11,'#fffbe0','#ffd23f','#c98a00','#ffd23f');
+    else sphere(cx,cy,11,'#6c5c80','#2c2338','#120e18');
+  } else if (n.type==='CLK'){
+    bezel(n);
+    ctx.fillStyle='#08150c'; ctx.beginPath(); ctx.roundRect(n.x+5,n.y+7,30,22,3); ctx.fill();
+    ctx.strokeStyle='#000'; ctx.lineWidth=1; ctx.stroke();
+    ctx.strokeStyle=n.stopped?'#6b3a3a':(n.v?'#7dff98':'#2f8f48'); ctx.lineWidth=2; ctx.beginPath();
+    ctx.moveTo(n.x+8,n.y+24); ctx.lineTo(n.x+8,n.y+12); ctx.lineTo(n.x+20,n.y+12); ctx.lineTo(n.x+20,n.y+24); ctx.lineTo(n.x+32,n.y+24); ctx.lineTo(n.x+32,n.y+12); ctx.stroke();
+    ctx.fillStyle=n.stopped?'#ff6b6b':'#2f8f48'; ctx.font='bold 7px Consolas,monospace'; ctx.fillText(n.stopped?'STOP':'RUN',cx,n.y+34);
+  } else if (SIZE[n.type]){ drawDisplay(n);
+  } else {
+    const w=60, inv=(n.type==='NOT'||n.type==='NAND'||n.type==='NOR'), bw=inv?w-8:w;
+    glossRect(n.x,n.y,bw,h,7,COL[n.type]);
+    if (inv){ const g=ctx.createRadialGradient(n.x+bw+3,n.y+18,1,n.x+bw+4,n.y+20,5.5); g.addColorStop(0,'#fff'); g.addColorStop(1,'#aab4c4');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(n.x+bw+4,n.y+20,4.6,0,7); ctx.fill(); ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.lineWidth=1.2; ctx.stroke(); }
+    ctx.font='bold 12px "Segoe UI",sans-serif';
+    ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillText(n.type,n.x+bw/2+1,n.y+21);
+    ctx.fillStyle='#fff'; ctx.fillText(n.type,n.x+bw/2,n.y+20);
+  }
+  if (n.label && (isSrc(n)||n.type==='OUT')){
+    ctx.fillStyle='#d3deef'; ctx.font='11px "Segoe UI",sans-serif'; ctx.textAlign='center'; ctx.fillText(n.label,n.x+20,n.y+h+10);
+  }
+  inPins(n).forEach((p,k)=>pin(p.x,p.y,sigCol(srcVal(n,k))));
+  const o=outPin(n); if(o) pin(o.x,o.y,sigCol(n.v));
+}
+function pin(x,y,c){
+  ctx.fillStyle='#161b24'; ctx.beginPath(); ctx.arc(x,y,5,0,7); ctx.fill();
+  ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,3.4,0,7); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(x,y,5,3.4,5.6); ctx.stroke();
+}
+function strokeWire(c){ ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y); ctx.bezierCurveTo(c[1].x,c[1].y,c[2].x,c[2].y,c[3].x,c[3].y); ctx.stroke(); }
+function draw(){
+  const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#1c2636'); bg.addColorStop(1,'#0e141d');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  ctx.save(); ctx.translate(ox,oy); ctx.scale(zoom,zoom);
+  if (showGrid){
+    ctx.fillStyle='#26324a';
+    const x0=Math.floor(-ox/zoom/20)*20, y0=Math.floor(-oy/zoom/20)*20, x1=(-ox+W)/zoom+20, y1=(-oy+H)/zoom+20;
+    for (let x=x0;x<x1;x+=20) for (let y=y0;y<y1;y+=20) ctx.fillRect(x-1,y-1,2,2);
+  }
+  ctx.lineCap='round';
+  for (const w of wires){ const c=wirePts(w); if(!c) continue;
+    ctx.lineWidth=5.5; ctx.strokeStyle='rgba(0,0,0,.55)'; strokeWire(c);
+    const on=byId[w.from].v;
+    ctx.lineWidth=3; ctx.strokeStyle=sigCol(on);
+    if (on){ ctx.shadowColor='#ffb800'; ctx.shadowBlur=8; } strokeWire(c); ctx.shadowBlur=0; }
+  for (const n of nodes) drawNode(n);
+  const mp={x:(mouse.x-ox)/zoom,y:(mouse.y-oy)/zoom};
+  if (drag && drag.type==='wire'){
+    const a=drag.pin, bx=hoverPin?hoverPin.x:mp.x, by=hoverPin?hoverPin.y:mp.y, dx=40, s=a.kind==='out'?1:-1;
+    ctx.lineWidth=3; ctx.strokeStyle='#5ec8ff'; ctx.setLineDash([6,5]);
+    strokeWire([{x:a.x,y:a.y},{x:a.x+dx*s,y:a.y},{x:bx-dx*s,y:by},{x:bx,y:by}]); ctx.setLineDash([]);
+  }
+  if (hoverPin){ ctx.strokeStyle='#5ec8ff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(hoverPin.x,hoverPin.y,9,0,7); ctx.stroke(); }
+  if (tool && !drag){
+    ctx.globalAlpha=.55; drawNode({type:tool,x:snap(mp.x-nw({type:tool})/2),y:snap(mp.y-20),v:0,src:[null,null],label:''}); ctx.globalAlpha=1;
+  }
+  ctx.restore();
+  $('hint').textContent = paused ? '⏸ PAUZA' : '';
+  updateStatus();
+  requestAnimationFrame(draw);
+}
+
+/* ================= MYSZ / KLAWIATURA ================= */
+function pos(e){ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top}; }
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('mousedown',e=>{
+  const s=pos(e), p={x:(s.x-ox)/zoom,y:(s.y-oy)/zoom};
+  if (e.button===2){
+    if (tool){ tool=null; renderPalette(); return; }
+    const pn=pinAt(p);
+    if (pn && pn.kind==='in'){ const w=wires.find(w=>w.to===pn.node.id&&w.pin===pn.idx); if(w){delWire(w);return;} }
+    const n=nodeAt(p);
+    if (n) delNode(n); else { const w=wireAt(p); if (w) delWire(w); }
+    return;
+  }
+  if (tool){
+    const typ=tool; let label='';
+    const cnt=t=>nodes.filter(n=>n.type===t).length;
+    if (typ==='IN') label=String.fromCharCode(65+cnt('IN')%26);
+    if (typ==='OUT') label='Q'+(cnt('OUT')||'');
+    if (typ==='CLK') label='CLK';
+    if (typ==='BTN') label='BTN'+(cnt('BTN')||'');
+    addNode(typ,p.x-nw({type:typ})/2,p.y-20,label); rebuild(); changed(); return;
+  }
+  const pn=pinAt(p);
+  if (pn){ drag={type:'wire',pin:pn}; return; }
+  const n=nodeAt(p);
+  if (n){ if (n.type==='BTN') n.v=1; drag={type:'node',n,dx:p.x-n.x,dy:p.y-n.y,moved:false,sx:s.x,sy:s.y}; return; }
+  drag={type:'pan',sx:s.x,sy:s.y,ox,oy};
+});
+cv.addEventListener('mousemove',e=>{
+  mouse=pos(e); const p={x:(mouse.x-ox)/zoom,y:(mouse.y-oy)/zoom};
+  if (drag && drag.type==='node'){
+    if (Math.hypot(mouse.x-drag.sx,mouse.y-drag.sy)>4) drag.moved=true;
+    if (drag.moved){ drag.n.x=snap(p.x-drag.dx); drag.n.y=snap(p.y-drag.dy); }
+  } else if (drag && drag.type==='pan'){ ox=drag.ox+mouse.x-drag.sx; oy=drag.oy+mouse.y-drag.sy; }
+  const hp=pinAt(p);
+  hoverPin = (drag&&drag.type==='wire') ? (hp&&hp.kind!==drag.pin.kind?hp:null) : hp;
+  cv.style.cursor = drag&&drag.type==='pan' ? 'grabbing' : (hp?'pointer':(nodeAt(p)?'move':'crosshair'));
+});
+window.addEventListener('mouseup',()=>{
+  if (!drag) return;
+  const p={x:(mouse.x-ox)/zoom,y:(mouse.y-oy)/zoom};
+  if (drag.type==='wire'){
+    const t=pinAt(p), a=drag.pin;
+    if (t && t.kind!==a.kind){
+      const o=a.kind==='out'?a:t, i=a.kind==='in'?a:t;
+      connect(o.node.id,i.node.id,i.idx);
+    }
+  } else if (drag.type==='node'){
+    if (drag.n.type==='BTN') drag.n.v=0;
+    if (!drag.moved){ if (drag.n.type==='IN') drag.n.v^=1; else if (drag.n.type==='CLK') drag.n.stopped=!drag.n.stopped; }
+    else changed();
+  }
+  drag=null;
+});
+window.addEventListener('keydown',e=>{
+  if (e.key==='Escape'){ closeMenu(); $('dlgbg').style.display='none'; tool=null; renderPalette(); return; }
+  if (e.ctrlKey){
+    const k=e.key.toLowerCase();
+    if (k==='s'){ e.preventDefault(); saveFile(); } else if (k==='o'){ e.preventDefault(); openFile(); }
+    else if (k==='n'){ e.preventDefault(); clearAll(); renderPalette(); } else if (k==='z'){ e.preventDefault(); undoLoad(); renderPalette(); }
+    else if (k==='0'){ e.preventDefault(); fitView(); }
+    return;
+  }
+  if (e.key==='F1'){ e.preventDefault(); helpDlg(); }
+  else if (e.key===' '){ paused=!paused; renderToolbar(); e.preventDefault(); }
+  else if (e.key==='.') pass();
+  else if (/^[0-9]$/.test(e.key)){ const t=PAL[(+e.key+9)%10]; if(t) pickTool(t); }
+  else if (e.key==='Delete'){
+    const p={x:(mouse.x-ox)/zoom,y:(mouse.y-oy)/zoom}, n=nodeAt(p); if(n) delNode(n); else { const w=wireAt(p); if(w) delWire(w); }
+  }
+});
+
+cv.addEventListener('wheel',e=>{ e.preventDefault(); const p=pos(e); zoomBy(e.deltaY<0?1.15:1/1.15,p.x,p.y); },{passive:false});
+
+/* ================= START ================= */
+setSpeed(60);
+resize();
+const saved = store('lg_sandbox');
+if (saved && saved.n && saved.n.length) { restore(saved); fitView(); } else loadExample(0);
+renderPalette(); renderInfo(); requestAnimationFrame(draw);
+</script>
+</body>
+</html>
