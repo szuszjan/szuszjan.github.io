@@ -169,36 +169,32 @@ function fullAdder(b,p,x,y,a,bb,ci){      // zwraca nazwy: sumę i przeniesienie
   b.w(a,p+'a1',0); b.w(bb,p+'a1',1); b.w(p+'x1',p+'a2',0); b.w(ci,p+'a2',1);
   b.w(p+'a1',p+'o',0); b.w(p+'a2',p+'o',1);
 }
-// Licznik "kropka": rejestr przesuwny 10 x przerzutnik D, jedna jedynka. wrap=true: pętla (10 -> 1, 1 -> 10), wrap=false: stopery na końcach.
+// Licznik "kropka": rejestr przesuwny 10 x przerzutnik D, jedna jedynka. Zegar tyka tylko gdy wciśnięty jest przycisk,
+// więc stopień nie potrzebuje członu "trzymaj": D[i] = (+ & Q[i-1]) | (- & Q[i+1]).
+// wrap=true: pętla (10 -> 1, 1 -> 10), wrap=false: stopery na końcach (kropka zostaje).
 function dotMake(b,wrap){
   const N=10, RH=170, Y=i=>(N-i)*RH;
   b.n('P','BTN',0,700,'+'); b.n('M','BTN',0,800,'-'); b.n('R','BTN',0,900,'R');
-  // sterowanie: pp = + (bez R), mm = - (bez R i bez +), h = nic nie wciśnięte
-  b.n('nr','NOT',140,960); b.n('np','NOT',140,560);
-  b.n('pp','AND',260,700); b.n('t','AND',260,860); b.n('mm','AND',400,780);
-  b.n('pm','OR',520,700); b.n('h','NOR',520,900);
-  if(!wrap){ b.n('hs1','OR',400,940); b.n('hp10','OR',400,1020); }
-  b.w('R','nr',0); b.w('P','np',0); b.w('P','pp',0); b.w('nr','pp',1); b.w('M','t',0); b.w('nr','t',1);
-  b.w('t','mm',0); b.w('np','mm',1); b.w('pp','pm',0); b.w('mm','pm',1); b.w('pm','h',0); b.w('R','h',1);
-  if(!wrap){ b.w('h','hs1',0); b.w('mm','hs1',1); b.w('h','hp10',0); b.w('pp','hp10',1); }
+  // sterowanie: pp = + (bez R), mm = - (bez R i bez +)
+  b.n('nr','NOT',140,960); b.n('z','NOR',140,760);
+  b.n('pp','AND',260,700); b.n('mm','AND',260,820); b.n('pm','OR',400,760);
+  b.w('R','nr',0); b.w('P','z',0); b.w('R','z',1); b.w('P','pp',0); b.w('nr','pp',1); b.w('M','mm',0); b.w('z','mm',1);
+  b.w('pp','pm',0); b.w('mm','pm',1);
   // logika wejść D (dalej: zatrzaski master, zegar, zatrzaski slave) - kolejność tworzenia = kolejność obliczeń
   const D={};
   for(let i=1;i<=N;i++){
-    const y0=Y(i), a=k=>'a'+k+'_'+i, o1='o1_'+i, o2='o2_'+i, o3='o3_'+i;
-    if(!wrap && i===1){            // stoper na dole: (mm&Q2) | ((h|mm)&Q1) | R
-      b.n(a(1),'AND',760,y0); b.n(a(2),'AND',760,y0+50); b.n(o1,'OR',880,y0+25); b.n(o2,'OR',1000,y0+75);
-      b.w('mm',a(1),0); b.w('q_2',a(1),1); b.w('hs1',a(2),0); b.w('q_1',a(2),1);
-      b.w(a(1),o1,0); b.w(a(2),o1,1); b.w(o1,o2,0); b.w('R',o2,1); D[i]=o2;
-    } else if(!wrap && i===N){     // stoper na górze: (pp&Q9) | ((h|pp)&Q10)
-      b.n(a(1),'AND',760,y0); b.n(a(2),'AND',760,y0+50); b.n(o1,'OR',880,y0+25);
-      b.w('pp',a(1),0); b.w('q_'+(i-1),a(1),1); b.w('hp10',a(2),0); b.w('q_'+i,a(2),1);
-      b.w(a(1),o1,0); b.w(a(2),o1,1); D[i]=o1;
-    } else {                       // zwykły stopień: (pp&Q[i-1]) | (mm&Q[i+1]) | (h&Q[i]), w pętli sąsiedzi są cykliczni
+    const y0=Y(i), a=k=>'a'+k+'_'+i, o1='o1_'+i, o2='o2_'+i, u='u_'+i;
+    if(!wrap && i===1){            // stoper na dole: D = (mm & (Q1|Q2)) | R
+      b.n(u,'OR',760,y0+50); b.n(a(1),'AND',880,y0+50); b.n(o1,'OR',1000,y0+50);
+      b.w('q_1',u,0); b.w('q_2',u,1); b.w('mm',a(1),0); b.w(u,a(1),1); b.w(a(1),o1,0); b.w('R',o1,1); D[i]=o1;
+    } else if(!wrap && i===N){     // stoper na górze: D = pp & (Q9|Q10)
+      b.n(u,'OR',760,y0+50); b.n(a(1),'AND',880,y0+50);
+      b.w('q_'+(i-1),u,0); b.w('q_'+i,u,1); b.w('pp',a(1),0); b.w(u,a(1),1); D[i]=a(1);
+    } else {                       // zwykły stopień; w pętli sąsiedzi są cykliczni
       const prev=i===1?N:i-1, next=i===N?1:i+1;
-      b.n(a(1),'AND',760,y0); b.n(a(2),'AND',760,y0+50); b.n(a(3),'AND',760,y0+100); b.n(o1,'OR',880,y0+25); b.n(o2,'OR',1000,y0+75);
-      b.w('pp',a(1),0); b.w('q_'+prev,a(1),1); b.w('mm',a(2),0); b.w('q_'+next,a(2),1); b.w('h',a(3),0); b.w('q_'+i,a(3),1);
-      b.w(a(1),o1,0); b.w(a(2),o1,1); b.w(o1,o2,0); b.w(a(3),o2,1); D[i]=o2;
-      if(wrap && i===1){ b.n(o3,'OR',1000,y0+25); b.w(o2,o3,0); b.w('R',o3,1); D[i]=o3; }   // reset ustawia pozycję 1
+      b.n(a(1),'AND',760,y0); b.n(a(2),'AND',760,y0+50); b.n(o1,'OR',880,y0+25);
+      b.w('pp',a(1),0); b.w('q_'+prev,a(1),1); b.w('mm',a(2),0); b.w('q_'+next,a(2),1); b.w(a(1),o1,0); b.w(a(2),o1,1); D[i]=o1;
+      if(wrap && i===1){ b.n(o2,'OR',1000,y0+25); b.w(o1,o2,0); b.w('R',o2,1); D[i]=o2; }   // reset ustawia pozycję 1
     }
   }
   for(let i=1;i<=N;i++){   // zatrzaski master
@@ -408,9 +404,9 @@ const EXAMPLES = [
     }
     for(let j=0;j<10;j++) b.w('V','M',10+j);
   }},
- {name:'Kropka góra/dół (+ − R)', desc:'Rejestr przesuwny z jedną świecącą diodą z 10. Przycisk + przesuwa kropkę w górę, − w dół (zatrzymuje się na końcach), R ustawia pozycję 1. Przyciski są chwilowe: przytrzymaj i puść = jeden krok.',
+ {name:'Kropka góra/dół (+ − R)', desc:'Rejestr przesuwny z jedną świecącą diodą z 10 (10 przerzutników D). + przesuwa kropkę w górę, − w dół i zatrzymuje się na końcach, R ustawia pozycję 1. Zegar tyka tylko przy wciśnięciu przycisku, więc każdy stopień ma tylko 3 bramki. Przyciski są chwilowe: wciśnij i puść = jeden krok.',
   after:dotAfter, make(b){ dotMake(b,false); }},
- {name:'Kropka góra/dół — pętla', desc:'To samo, ale bez stoperów: + na pozycji 10 przeskakuje na 1, a − na pozycji 1 na 10. Prostszy układ: wszystkie 10 stopni jest identycznych. R ustawia pozycję 1.',
+ {name:'Kropka góra/dół — pętla', desc:'To samo, ale bez stoperów: + na pozycji 10 przeskakuje na 1, a − na pozycji 1 na 10. Wszystkie 10 stopni jest identycznych. R ustawia pozycję 1.',
   after:dotAfter, make(b){ dotMake(b,true); }},
 ];
 
@@ -426,7 +422,7 @@ const store = (k,v)=>{ try{ if(v===undefined) return JSON.parse(localStorage.get
 const $ = id => document.getElementById(id);
 
 function resize(){
-  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio||1;
+  const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio||1, isMobile()?2:3);
   W = r.width; H = r.height; cv.width = W*d; cv.height = H*d;
   ctx.setTransform(d,0,0,d,0,0);
 }
@@ -661,10 +657,11 @@ function bezel(n){
   ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=1; ctx.beginPath(); ctx.roundRect(n.x+1.5,n.y+1.5,37,37,8); ctx.stroke();
 }
 function sphere(cx,cy,r,hi,mid,lo,glow){
-  if (glow){ ctx.shadowColor=glow; ctx.shadowBlur=16; }
+  if (glow){ const hg=ctx.createRadialGradient(cx,cy,r*.5,cx,cy,r*2.1); hg.addColorStop(0,glow+'99'); hg.addColorStop(1,glow+'00');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(cx,cy,r*2.1,0,7); ctx.fill(); }
   const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r);
   g.addColorStop(0,hi); g.addColorStop(.55,mid); g.addColorStop(1,lo);
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill(); ctx.shadowBlur=0;
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
   ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle='rgba(255,255,255,.55)'; ctx.beginPath(); ctx.ellipse(cx-r*.25,cy-r*.45,r*.5,r*.28,-.4,0,7); ctx.fill();
 }
@@ -676,9 +673,9 @@ function digit(x0,y0,bw,bh,mask,on,off,dp){
   const P=[[hs,x0+bw/2,y0+t/2,hl],[vs,x0+bw-t/2,y0+bh/4,vl],[vs,x0+bw-t/2,y0+bh*3/4,vl],[hs,x0+bw/2,y0+bh-t/2,hl],
            [vs,x0+t/2,y0+bh*3/4,vl],[vs,x0+t/2,y0+bh/4,vl],[hs,x0+bw/2,mid,hl]];
   P.forEach((p,i)=>{ const lit=(mask>>i)&1; p[0](p[1],p[2],p[3]);
-    if(lit){ ctx.shadowColor=on; ctx.shadowBlur=10; } ctx.fillStyle=lit?on:off; ctx.fill(); ctx.shadowBlur=0; });
+    ctx.fillStyle=lit?on:off; ctx.fill(); });
   if (dp!==undefined){ const lit=dp; ctx.beginPath(); ctx.arc(x0+bw+t*.9,y0+bh-t*.4,t*.5,0,7);
-    if(lit){ ctx.shadowColor=on; ctx.shadowBlur=10; } ctx.fillStyle=lit?on:off; ctx.fill(); ctx.shadowBlur=0; }
+    ctx.fillStyle=lit?on:off; ctx.fill(); }
 }
 function drawDisplay(n){
   const w=nw(n), h=nh(n);
@@ -712,8 +709,7 @@ function drawDisplay(n){
     screen(n.x+10,n.y+10,200,210);
     for(let r=0;r<10;r++) for(let c=0;c<10;c++){
       const lit=srcVal(n,r)&srcVal(n,10+c), cx=n.x+20+c*20, cy=n.y+20+r*20;
-      if(lit){ ctx.shadowColor='#ff4a30'; ctx.shadowBlur=9; }
-      ctx.fillStyle=lit?'#ff5a40':'#2b1512'; ctx.beginPath(); ctx.arc(cx,cy,7,0,7); ctx.fill(); ctx.shadowBlur=0;
+      ctx.fillStyle=lit?'#ff5a40':'#2b1512'; ctx.beginPath(); ctx.arc(cx,cy,7,0,7); ctx.fill();
       if(lit){ ctx.fillStyle='rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(cx-2,cy-2,2.2,0,7); ctx.fill(); }
     }
     for(let c=0;c<10;c++) label('C'+c,n.x+20+c*20,n.y+h-6,'center');
@@ -766,7 +762,19 @@ function pin(x,y,c){
   ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(x,y,5,3.4,5.6); ctx.stroke();
 }
 function strokeWire(c){ ctx.beginPath(); ctx.moveTo(c[0].x,c[0].y); ctx.bezierCurveTo(c[1].x,c[1].y,c[2].x,c[2].y,c[3].x,c[3].y); ctx.stroke(); }
+let lastSig='';
+function sigNow(){   // cheap fingerprint of everything the picture depends on
+  let h=0;
+  for (const n of nodes) h=(h*31 + n.id*7 + (n.x|0)*3 + (n.y|0)*5 + n.v*2 + (n.stopped?1:0))|0;
+  for (const w of wires) h=(h*17 + w.from*13 + w.to*5 + w.pin)|0;
+  return h+'|'+nodes.length+'|'+wires.length+'|'+(ox|0)+','+(oy|0)+','+zoom.toFixed(3)+'|'+W+','+H+'|'+showGrid+'|'+(tool||'')+'|'+paused+'|'+
+    ((tool||(drag&&drag.type==='wire'))?(mouse.x|0)+','+(mouse.y|0):'')+'|'+(hoverPin?hoverPin.x+','+hoverPin.y:'');
+}
 function draw(){
+  const sg=sigNow();
+  if (sg===lastSig){ requestAnimationFrame(draw); return; }
+  lastSig=sg;
+  const vx0=-ox/zoom-80, vx1=(W-ox)/zoom+80, vy0=-oy/zoom-80, vy1=(H-oy)/zoom+80;
   const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#1c2636'); bg.addColorStop(1,'#0e141d');
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
   ctx.save(); ctx.translate(ox,oy); ctx.scale(zoom,zoom);
@@ -777,11 +785,14 @@ function draw(){
   }
   ctx.lineCap='round';
   for (const w of wires){ const c=wirePts(w); if(!c) continue;
-    ctx.lineWidth=5.5; ctx.strokeStyle='rgba(0,0,0,.55)'; strokeWire(c);
+    if (Math.max(c[0].x,c[1].x,c[2].x,c[3].x)<vx0 || Math.min(c[0].x,c[1].x,c[2].x,c[3].x)>vx1 ||
+        Math.max(c[0].y,c[1].y,c[2].y,c[3].y)<vy0 || Math.min(c[0].y,c[1].y,c[2].y,c[3].y)>vy1) continue;
     const on=byId[w.from].v;
+    if (on){ ctx.lineWidth=9; ctx.strokeStyle='rgba(255,184,0,.22)'; strokeWire(c); }
+    ctx.lineWidth=5.5; ctx.strokeStyle='rgba(0,0,0,.55)'; strokeWire(c);
     ctx.lineWidth=3; ctx.strokeStyle=sigCol(on);
-    if (on){ ctx.shadowColor='#ffb800'; ctx.shadowBlur=8; } strokeWire(c); ctx.shadowBlur=0; }
-  for (const n of nodes) drawNode(n);
+    strokeWire(c); }
+  for (const n of nodes){ if (n.x+nw(n)<vx0 || n.x>vx1 || n.y+nh(n)<vy0 || n.y>vy1) continue; drawNode(n); }
   const mp={x:(mouse.x-ox)/zoom,y:(mouse.y-oy)/zoom};
   if (drag && drag.type==='wire'){
     const a=drag.pin, bx=hoverPin?hoverPin.x:mp.x, by=hoverPin?hoverPin.y:mp.y, dx=40, s=a.kind==='out'?1:-1;
