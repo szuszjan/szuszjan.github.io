@@ -168,7 +168,6 @@ class Engine(Audio):
                 self.bars.append((pc, minor, si, b))
         self.nbars = len(self.bars)
         self.loop_bars = self.nbars + song.TAIL_BARS
-        self.ratio = [2 ** ((m - 60) / 12) for m in range(128)]
         # voices: [sample, midi, vol, phase, time, ratio]
         self.voice = [[None, 0, 0, 0.0, 0, 1.0] for _ in range(4)]
         self.lead_start = 0
@@ -236,7 +235,7 @@ class Engine(Audio):
             ph = (v[3] + (at - v[4]) * v[5]) % _WAVE
         else:
             ph = 0.0
-        r = self.ratio[midi]
+        r = 2 ** ((midi - 60) / 12)
         v[0] = smp
         v[1] = midi
         v[2] = vol
@@ -286,9 +285,10 @@ class Engine(Audio):
                 d = dp[step]
                 if step == 0 and bis == 0 and sec.crash:
                     d = "c"
-                if d != ".":
+                smp = self.drums.get(d) or (self.drums.get("k") if d == "c" else None)
+                if d != "." and smp is not None:
                     rel = sec.drel[bis % len(sec.drel)] + DRUM_REL[d]
-                    self._drum(off, self.drums[d], self._vol(rel))
+                    self._drum(off, smp, self._vol(rel))
                     hits = self.hits
                     hits.append((at, d))
                     if len(hits) > 24:

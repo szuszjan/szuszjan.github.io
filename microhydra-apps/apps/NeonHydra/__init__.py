@@ -14,6 +14,34 @@ Install: copy the whole NeonHydra folder into /apps (flash or SD card).
 """
 
 import gc
+import os
+import sys
+
+# ---------------------------------------------------------------- debug log
+# Written to the SD card (readable on a phone) or to flash: free memory at every step
+# and the full error if something fails.
+try:
+    _LOG = "/sd/neonhydra_log.txt" if "sd" in os.listdir("/") else "/neonhydra_log.txt"
+    with open(_LOG, "w") as _f:
+        _f.write("NEON HYDRA debug log\n")
+except Exception:  # noqa: BLE001
+    _LOG = None
+
+
+def dbg(msg, err=None):
+    if _LOG is None:
+        return
+    try:
+        gc.collect()
+        with open(_LOG, "a") as f:
+            f.write("%s | free %d B\n" % (msg, gc.mem_free()))
+            if err is not None:
+                sys.print_exception(err, f)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+dbg("start")
 import math
 import random
 import time
@@ -24,8 +52,16 @@ from font import vga2_16x32 as BIG
 from lib import display, userinput
 from lib.hydra import config
 
+dbg("libs imported")
 try:
-    from . import engine, fx, parts, song
+    from . import song
+    dbg("song imported")
+    from . import engine
+    dbg("engine imported")
+    from . import fx
+    dbg("fx imported")
+    from . import parts
+    dbg("parts imported")
 except ImportError:
     from apps.NeonHydra import engine, fx, parts, song
 
@@ -37,6 +73,7 @@ _ROW_MS = 1326 * 1000 / 11025
 DISPLAY = display.Display()
 CONFIG = config.Config()
 INPUT = userinput.UserInput()
+dbg("display created")
 
 
 # ---------------------------------------------------------------- context
@@ -151,8 +188,10 @@ def loader(clock):
                 try:
                     gc.collect()
                     fn()
+                    dbg("loader: " + name)
                 except Exception as e:  # noqa: BLE001
                     # don't crash: show the problem, continue without that part
+                    dbg("loader FAILED: " + name, e)
                     errors.append("%s: %s" % (name, repr(e)[:22]))
                 gc.collect()
             elif done_at is None:
@@ -206,8 +245,9 @@ def main():
 
     try:
         clock = engine.Engine(song=song, config=CONFIG, waves=None, drums=None)
+        dbg("audio engine started")
     except Exception as e:  # noqa: BLE001
-        print("audio failed:", e)
+        dbg("audio engine FAILED", e)
         clock = SilentClock(loop_bars)
 
     waves, drums = loader(clock)
@@ -265,7 +305,9 @@ def main():
             try:
                 part = parts.PARTS[name]()
                 part.start(ctx)
+                dbg("part: " + name)
             except Exception as e:  # noqa: BLE001
+                dbg("part FAILED: " + name, e)
                 part = ErrorPart(name, e)
             gc.collect()
 
@@ -288,6 +330,7 @@ def main():
         try:
             part.draw(ctx, rows - starts[si] * 16, beat)
         except Exception as e:  # noqa: BLE001
+            dbg("draw FAILED: " + sec_names[si], e)
             part = ErrorPart(sec_names[si], e)
             part.draw(ctx, 0, beat)
 
@@ -309,4 +352,8 @@ def main():
         show()
 
 
-main()
+try:
+    main()
+except Exception as _e:  # noqa: BLE001
+    dbg("FATAL", _e)
+    raise

@@ -92,6 +92,9 @@ nie są potrzebne do pisania, apki przyjmują je też bez `FN`.
 
 ### NeonHydra: uwagi
 
+- Przy każdym uruchomieniu demo zapisuje dziennik `neonhydra_log.txt` na karcie SD (albo we flashu, gdy nie ma karty):
+  wolną pamięć przed każdym krokiem i pełny opis błędu, jeśli coś się nie uda. Na telefonie odczytasz go przez tryb USB drive.
+
 - Głośność dema zależy od głośności MicroHydry (domyślnie 2 jest dość cicho). W demie możesz ją zmieniać `;` / `.`, a wybrana wartość zostaje też w ustawieniach.
 - Obraz i muzyka liczą się na żywo. Jeśli jakaś część działa wolniej, muzyka i tak trzyma tempo, a grafika tylko gubi klatki (`f` pokazuje FPS).
 - Struktura utworu: intro (8 taktów), temat A (16), temat B (16), przerwa (8), narastanie (4), temat A2 (16), temat C w wyższej tonacji (16), outro (8), potem „THE END” i demo zaczyna się od nowa.
