@@ -37,6 +37,19 @@ MicroHydra uruchamia każdy plik `.py` z folderu `apps` na pamięci flash albo n
 Jeśli po kroku 4 AppInstaller się nie pojawi, najczęściej winne jest Wi-Fi (sieć 5 GHz albo literówka
 w haśle) albo literówka w adresie. Możesz też uruchomić `Get.py` przez **Run here**, wtedy zobaczysz ewentualny błąd.
 
+### Android + M5Launcher (tryb USB drive): najprościej
+
+MicroHydra sama czyta apki z folderu `apps` na karcie SD, a M5Launcher potrafi udostępnić kartę jako pendrive.
+
+1. Na telefonie pobierz paczkę ZIP z apkami:
+   https://github.com/szuszjan/szuszjan.github.io/archive/refs/heads/ccr-7347e944-2ijb9a.zip
+   i rozpakuj ją (np. w aplikacji Pliki od Google). Pliki apek są w `microhydra-apps/apps/`.
+2. Na Cardputerze uruchom M5Launcher, włącz tryb USB drive i podłącz Cardputera kablem USB-C do telefonu.
+3. Skopiuj wybrane pliki `.py` do folderu **`apps`** w głównym katalogu karty (jeśli go nie ma, utwórz go).
+   `AppInstaller.py` i `index.json` nie są potrzebne.
+4. Odłącz kabel, wyjdź z trybu USB drive i uruchom MicroHydrę. Apki pojawią się w launcherze
+   (z ikonką karty SD).
+
 ### Inne sposoby
 
 - **Karta SD:** skopiuj pliki z `apps/` do `/apps/` na karcie i włóż ją do Cardputera.
