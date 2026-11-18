@@ -75,77 +75,54 @@ def make_waves():
     return w
 
 
-def make_drums(step_cb=None):
-    """Synthesize drum samples (kick, snare, hats, crash). ~0.5 s on device."""
+_DRATE = const(5512)  # drums are stored at half rate (played one octave down) to save RAM
+
+DRUMS = ("k", "s", "h", "o", "c")
+
+
+def make_drum(key, drums):
+    """Synthesize one drum sample straight into a bytearray (no big temporary lists)."""
     rnd = random.getrandbits
     exp = math.exp
     sin = math.sin
-    d = {}
-
-    def noise():
-        return rnd(16) - 32768
-
-    # kick: pitch drop 300 -> 50 Hz + click
-    n = 1800
-    v = []
+    n = {"k": 900, "s": 1100, "h": 300, "o": 900, "c": 1700}[key]
+    buf = bytearray(2 * n)
+    prev = 0
     ph = 0.0
     for i in range(n):
-        t = i / _RATE
-        f = 50 + 260 * exp(-t * 30)
-        ph += 6.2832 * f / _RATE
-        s = sin(ph) * exp(-t * 9) * 15000
-        if i < 40:
-            s += noise() * 0.25 * (1 - i / 40)
-        v.append(int(max(-32000, min(32000, s))))
-    kick = v
-    d["k"] = _make(kick)
-    if step_cb:
-        step_cb()
-
-    # snare: noise + 185 Hz body
-    n = 2400
-    v = []
-    prev = 0
-    for i in range(n):
-        t = i / _RATE
-        nz = noise()
-        hp = nz - prev
-        prev = nz
-        s = hp * 0.22 * exp(-t * 16) + sin(6.2832 * 185 * t) * 9000 * exp(-t * 28)
-        v.append(int(max(-32000, min(32000, s))))
-    d["s"] = _make(v)
-    if step_cb:
-        step_cb()
-
-    # hats (high passed noise)
-    for key, n, dec, amp in (("h", 520, 85, 0.22), ("o", 2200, 11, 0.16)):
-        v = []
-        prev = 0
-        for i in range(n):
-            t = i / _RATE
-            nz = noise()
-            s = (nz - prev) * amp * exp(-t * dec)
+        t = i / _DRATE
+        if key == "k" or key == "c":
+            f = 50 + 260 * exp(-t * 30)
+            ph += 6.2832 * f / _DRATE
+            s = sin(ph) * exp(-t * 9) * 15000
+            if i < 20:
+                s += (rnd(16) - 32768) * 0.25 * (1 - i / 20)
+            if key == "c":
+                nz = rnd(16) - 32768
+                s += (nz - prev) * 0.15 * exp(-t * 4.5)
+                prev = nz
+        elif key == "s":
+            nz = rnd(16) - 32768
+            s = (nz - prev) * 0.22 * exp(-t * 16) + sin(6.2832 * 185 * t) * 9000 * exp(-t * 28)
             prev = nz
-            v.append(int(max(-32000, min(32000, s))))
-        d[key] = _make(v)
-        if step_cb:
-            step_cb()
+        else:
+            nz = rnd(16) - 32768
+            s = (nz - prev) * (0.22 if key == "h" else 0.16) * exp(-t * (85 if key == "h" else 11))
+            prev = nz
+        v = int(s)
+        if v > 32000:
+            v = 32000
+        elif v < -32000:
+            v = -32000
+        buf[2 * i] = v & 255
+        buf[2 * i + 1] = (v >> 8) & 255
+    drums[key] = Sample(memoryview(buf))
 
-    # crash = kick + long noise
-    n = 4400
-    v = []
-    prev = 0
-    for i in range(n):
-        t = i / _RATE
-        nz = noise()
-        s = (nz - prev) * 0.15 * exp(-t * 4.5)
-        prev = nz
-        if i < len(kick):
-            s += kick[i]
-        v.append(int(max(-32000, min(32000, s))))
-    d["c"] = _make(v)
-    if step_cb:
-        step_cb()
+
+def make_drums():
+    d = {}
+    for k in DRUMS:
+        make_drum(k, d)
     return d
 
 
@@ -277,8 +254,9 @@ class Engine(Audio):
             self._queues[ch].append(Register(buf_start=off))
 
     def _drum(self, off, smp, vol):
+        # octave 3 = half speed, matching the half-rate drum samples
         self._queues[CH_DRUM].append(Register(
-            buf_start=off, sample=smp, note=0, period_mult=8, loop=False, volume=vol))
+            buf_start=off, sample=smp, note=0, period_mult=4, loop=False, volume=vol))
 
     # ------------------------------------------------------------ sequencer
     def _tick(self, off, at):
@@ -304,7 +282,7 @@ class Engine(Audio):
             self.master = self.cfg["volume"]
             # ---- drums
             dp = sec.drums[bis % len(sec.drums)]
-            if dp:
+            if dp and self.drums:
                 d = dp[step]
                 if step == 0 and bis == 0 and sec.crash:
                     d = "c"

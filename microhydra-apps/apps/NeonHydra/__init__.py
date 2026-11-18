@@ -20,7 +20,6 @@ import time
 from array import array
 
 import machine
-from font import vga1_8x16 as MED
 from font import vga2_16x32 as BIG
 from lib import display, userinput
 from lib.hydra import config
@@ -53,7 +52,6 @@ ctx = Ctx()
 ctx.D = DISPLAY
 ctx.fb = DISPLAY.fbuf
 ctx.swap = bool(getattr(DISPLAY, "needs_swap", True))
-ctx.MED = MED
 ctx.BIG = BIG
 ctx.rgb565 = rgb565
 if ctx.swap:
@@ -63,23 +61,8 @@ else:
 ctx.sin16 = [int(127.5 + 127.5 * math.sin(i * 6.2832 / 256)) for i in range(256)]
 ctx.sint = bytearray(ctx.sin16)
 ctx.blend_prm = array("i", [0] * 5)
-ctx.tunnel_tab = bytearray(3 * 8160)
-
-
-def tunnel_rows(y0, y1):
-    tab = ctx.tunnel_tab
-    sqrt = math.sqrt
-    atan2 = math.atan2
-    for by in range(y0, y1):
-        dy = by - 33.5
-        for bx in range(120):
-            dx = bx - 59.5
-            r = sqrt(dx * dx + dy * dy) + 0.01
-            i = by * 120 + bx
-            tab[i] = int(atan2(dy, dx) * 81.487) & 255  # 2 texture repeats around
-            tab[i + 8160] = int(900 / r) & 255
-            sh = int(r / 4.2)
-            tab[i + 16320] = 15 if sh > 15 else sh
+ctx.tunnel_tab = None  # allocated only for the break/build parts (see parts.tunnel_prepare)
+ctx.tunnel_done = 0
 
 
 class SilentClock:
@@ -103,6 +86,24 @@ class SilentClock:
         self.t0 = time.ticks_add(time.ticks_ms(), -int(bar * 16 * _ROW_MS))
 
 
+class ErrorPart:
+    """Shown instead of a part that failed (e.g. out of memory), so the demo keeps going."""
+
+    def __init__(self, name, err):
+        self.msg = "%s: %s" % (name, repr(err)[:40])
+        print("part failed:", self.msg)
+
+    def start(self, ctx):
+        pass
+
+    def draw(self, ctx, t, beat):
+        ctx.fb.fill(ctx.c((0, 0, 0)))
+        DISPLAY.text("part failed:", 4, 50, 0xF800)
+        DISPLAY.text(self.msg[:29], 4, 62, 0xFFFF)
+        DISPLAY.text(self.msg[29:58], 4, 72, 0xFFFF)
+        DISPLAY.text("%dK free  SPC = next part" % (gc.mem_free() // 1024), 4, 90, 0x07E0)
+
+
 def show():
     DISPLAY._set_show_y(0, _H)
     DISPLAY.show()
@@ -116,19 +117,15 @@ def check_exit(keys):
 # ---------------------------------------------------------------- loader
 def loader(clock):
     """Retro 'tape loading' screen; does the real precomputation meanwhile."""
-    steps = []
-    store = {}
+    store = {"drums": {}}
+    errors = []
 
     def make_waves():
         store["waves"] = engine.make_waves()
 
-    def make_drums():
-        store["drums"] = engine.make_drums()
-
-    steps.append(make_waves)
-    steps.append(make_drums)
-    for y in range(0, 68, 6):
-        steps.append(lambda y=y: tunnel_rows(y, min(68, y + 6)))
+    steps = [("waves", make_waves)]
+    for key in engine.DRUMS:
+        steps.append(("drum " + key, lambda key=key: engine.make_drum(key, store["drums"])))
     total = len(steps)
 
     green = rgb565((120, 255, 120))
@@ -150,13 +147,21 @@ def loader(clock):
         if loading:
             lines.append("LOADING")
             if steps:
-                steps.pop(0)()
+                name, fn = steps.pop(0)
+                try:
+                    gc.collect()
+                    fn()
+                except Exception as e:  # noqa: BLE001
+                    # don't crash: show the problem, continue without that part
+                    errors.append("%s: %s" % (name, repr(e)[:22]))
+                gc.collect()
             elif done_at is None:
                 done_at = t
         if done_at is not None and t > max(done_at, 6500):
             lines += ["READY.", "RUN"[:max(0, (t - max(done_at, 6500)) // 150)]]
-        if done_at is not None and t > max(done_at, 6500) + 900:
+        if done_at is not None and t > max(done_at, 6500) + (900 if not errors else 5000):
             break
+        lines += ["ERR " + e for e in errors]
 
         if loading and (steps or t < 6200):
             # tape loader stripes in the border
@@ -172,7 +177,8 @@ def loader(clock):
         else:
             ctx.fb.fill(black)
         for i, line in enumerate(lines):
-            DISPLAY.text(line, 18, 14 + i * 11, green)
+            DISPLAY.text(line, 18, 14 + i * 11, green if not line.startswith("ERR") else 0xF800)
+        DISPLAY.text("%dK free" % (gc.mem_free() // 1024), _W - 96, 36, rgb565((60, 160, 60)))
         if loading and (steps or t < 6200):
             done = total - len(steps)
             ctx.fb.rect(18, _H - 22, _W - 36, 8, ctx.c((120, 255, 120)))
@@ -183,7 +189,7 @@ def loader(clock):
                              ctx.c((120, 255, 120)))
         show()
         time.sleep_ms(5)
-    return store["waves"], store["drums"]
+    return store.get("waves"), store["drums"]
 
 
 # ---------------------------------------------------------------- main
@@ -206,8 +212,12 @@ def main():
 
     waves, drums = loader(clock)
     if isinstance(clock, engine.Engine):
-        clock.waves = waves
-        clock.drums = drums
+        if waves is None:
+            clock.playing = False
+            clock = SilentClock(loop_bars)
+        else:
+            clock.waves = waves
+            clock.drums = drums
     del waves, drums
     gc.collect()
     clock.start()
@@ -247,10 +257,16 @@ def main():
 
         if si != current:
             current = si
+            name = sec_names[si]
             part = None
+            if name not in ("break", "build"):
+                ctx.tunnel_tab = None  # free 24K when the tunnel isn't coming up
             gc.collect()
-            part = parts.PARTS[sec_names[si]]()
-            part.start(ctx)
+            try:
+                part = parts.PARTS[name]()
+                part.start(ctx)
+            except Exception as e:  # noqa: BLE001
+                part = ErrorPart(name, e)
             gc.collect()
 
         # beat detection from the sequencer's drum hits
@@ -269,7 +285,11 @@ def main():
                 break
         beat = {"kick": kick if kick > 0.001 else 0.0, "snare": snare if snare > 0.001 else 0.0}
 
-        part.draw(ctx, rows - starts[si] * 16, beat)
+        try:
+            part.draw(ctx, rows - starts[si] * 16, beat)
+        except Exception as e:  # noqa: BLE001
+            part = ErrorPart(sec_names[si], e)
+            part.draw(ctx, 0, beat)
 
         now = time.ticks_ms()
         if time.ticks_diff(osd_until, now) > 0:
@@ -284,8 +304,8 @@ def main():
             frames = 0
             fps_t = now
         if show_fps:
-            ctx.fb.fill_rect(0, 0, 56, 10, ctx.c((0, 0, 0)))
-            DISPLAY.text("%d fps" % fps, 1, 1, 0xFFE0)
+            ctx.fb.fill_rect(0, 0, 128, 10, ctx.c((0, 0, 0)))
+            DISPLAY.text("%d fps %dK" % (fps, gc.mem_free() // 1024), 1, 1, 0xFFE0)
         show()
 
 

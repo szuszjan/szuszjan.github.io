@@ -112,9 +112,9 @@ class BigText:
     """Text rendered with fx.big_text (16x32 font, optional 2x scale)."""
 
     def __init__(self, ctx, text, grad):
-        self.text = text
-        self.cols = bytearray(len(text) * 64)  # 32-bit column masks
-        self.ncols = fx.build_cols(ctx.BIG.FONT, text.encode(), self.cols)
+        self.text = text.encode()
+        self.font = ctx.BIG.FONT
+        self.ncols = len(text) * 16
         self.ctab = array("H", ctx.sin16)
         for i in range(64):
             self.ctab.append(grad[i])
@@ -138,7 +138,7 @@ class BigText:
         q[9] = shadow
         q[10] = y0
         q[11] = y1
-        fx.big_text(ctx.fb, self.cols, q, self.ctab)
+        fx.big_text(ctx.fb, self, q, self.ctab)
 
 
 def gradient64(ctx, stops):
@@ -167,6 +167,31 @@ def flash_screen(ctx, amount, rgb=(255, 255, 255)):
     q[3] = rgb[2] >> 3
     q[4] = 1 if ctx.swap else 0
     fx.blend(ctx.fb, q)
+
+
+def tunnel_prepare(ctx, budget):
+    """Allocate and compute the tunnel tables (120x68 angle/depth/shade), `budget` rows per call."""
+    if ctx.tunnel_tab is None:
+        ctx.tunnel_tab = bytearray(3 * 8160)
+        ctx.tunnel_done = 0
+    y0 = ctx.tunnel_done
+    if y0 >= 68:
+        return
+    y1 = min(68, y0 + budget)
+    tab = ctx.tunnel_tab
+    sqrt = math.sqrt
+    atan2 = math.atan2
+    for by in range(y0, y1):
+        dy = by - 33.5
+        for bx in range(120):
+            dx = bx - 59.5
+            r = sqrt(dx * dx + dy * dy) + 0.01
+            i = by * 120 + bx
+            tab[i] = int(atan2(dy, dx) * 81.487) & 255  # 2 texture repeats around
+            tab[i + 8160] = int(900 / r) & 255
+            sh = int(r / 4.2)
+            tab[i + 16320] = 15 if sh > 15 else sh
+    ctx.tunnel_done = y1
 
 
 # ---------------------------------------------------------------- parts
@@ -325,6 +350,7 @@ class Balls:
             pts.append((z, int(120 + x * zoom * p * 1.4), int(67 + y * zoom * p * 1.4), p, j % 3))
         pts.sort()
         pts.reverse()
+        tunnel_prepare(ctx, 2)  # build the next part's tables in the background
         for z, x, y, p, hue in pts:
             r = int(2 + 4.5 * p)
             k = int(max(0, min(7, (1.2 - z) * 3)))
@@ -348,6 +374,7 @@ class Tunnel:
         self.pal = pal
 
     def draw(self, ctx, t, beat):
+        tunnel_prepare(ctx, 68)
         speed = 1 + t * t / 300
         q = self.prm
         q[0] = int(t * 2)
@@ -398,7 +425,7 @@ class Roto:
 
     def start(self, ctx):
         self.prm = array("i", [0] * 6)
-        tex = array("H", [0] * 4096)
+        tex = bytearray(8192)  # 64x64 RGB565 (no temporary list: saves RAM)
         c1 = (60, 0, 120)
         c2 = (20, 0, 60)
         ring = ((255, 200, 0), (255, 100, 0))
@@ -412,7 +439,10 @@ class Roto:
                 if d < 9:
                     k = 1 - d / 9
                     col = scale((80, 220, 255), 0.5 + 0.5 * k)
-                tex[y * 64 + x] = ctx.c(col)
+                c = ctx.c(col)
+                i = (y * 64 + x) * 2
+                tex[i] = c & 255
+                tex[i + 1] = c >> 8
         self.tex = tex
         grad = gradient64(ctx, ((255, 255, 255), (80, 220, 255), (255, 255, 255), (255, 100, 220)))
         self.banner = BigText(ctx, "NEON HYDRA", grad)
@@ -472,8 +502,8 @@ class Outro:
         y0 = _H - int(t * 1.6)
         for i, line in enumerate(self.LINES):
             y = y0 + i * 14
-            if -16 < y < _H:
-                font = ctx.MED if i == 0 else None
+            if -32 < y < _H:
+                font = ctx.BIG if i == 0 else None
                 text_center(ctx, line, y, (255, 255, 255) if i else (255, 230, 120), font)
         if t > 112:
             flash_screen(ctx, (t - 112) / 16, (0, 0, 0))

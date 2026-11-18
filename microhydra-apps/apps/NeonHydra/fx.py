@@ -180,50 +180,21 @@ def fire_draw(fb, buf, pal, y0: int):
 
 
 @micropython.viper
-def build_cols(font, text, out) -> int:
-    """Convert text into 32-bit column masks (16x32 font, 16 columns per char).
+def big_text(fb, src, prm, ctab):
+    """Draw text (16x32 font) with a sine wave and a vertical color gradient.
 
-    Returns the number of columns written.
-    """
-    g = ptr8(font)
-    s = ptr8(text)
-    o = ptr32(out)
-    n = int(len(text))
-    col = 0
-    ci = 0
-    while ci < n:
-        base = s[ci] * 64
-        cx = 0
-        while cx < 16:
-            m = 0
-            r = 0
-            byte_off = cx >> 3
-            bit = 7 - (cx & 7)
-            while r < 32:
-                if (g[base + r * 2 + byte_off] >> bit) & 1:
-                    m |= 1 << r
-                r += 1
-            o[col] = m
-            col += 1
-            cx += 1
-        ci += 1
-    return col
-
-
-@micropython.viper
-def big_text(fb, cols, prm, ctab):
-    """Draw column-mask text with a sine wave and a vertical color gradient.
-
-    prm: ncols, scroll (screen x of column 0 is -scroll), y base, amplitude,
+    src: object with .font (16x32 glyph data) and .text (bytes)
+    prm: unused, scroll (screen x of text start is -scroll), y base, amplitude,
          sine phase, sine x-speed, x scale shift (0/1), y scale (1/2),
          gradient offset, shadow color (0 = none), clip y0, clip y1
     ctab: array('H'): [0..255] sine table values 0..255, [256..319] gradient colors
     """
     p = ptr16(fb)
-    m = ptr32(cols)
+    g = ptr8(src.font)
+    s = ptr8(src.text)
+    n = int(len(src.text))
     q = ptr32(prm)
     t = ptr16(ctab)
-    ncols = q[0]
     scroll = q[1]
     ybase = q[2]
     amp = q[3]
@@ -238,26 +209,27 @@ def big_text(fb, cols, prm, ctab):
     x = 0
     while x < 240:
         c = (scroll + x) >> sh
-        if 0 <= c < ncols:
-            mask = m[c]
-            if mask:
-                y = ybase + (((t[(x * xs + phase) & 255] - 128) * amp) >> 7)
-                r = 0
-                while r < 32:
-                    if (mask >> r) & 1:
-                        col = t[256 + ((r + goff) & 63)]
-                        k = 0
-                        while k < ys:
-                            yy = y + r * ys + k
-                            if cy0 <= yy < cy1:
-                                p[yy * 240 + x] = col
-                                if shadow:
-                                    yd = yy + 3
-                                    if yd < cy1 and x + 3 < 240:
-                                        if p[yd * 240 + x + 3] != col:
-                                            p[yd * 240 + x + 3] = shadow
-                            k += 1
-                    r += 1
+        ci = c >> 4
+        if c >= 0 and ci < n:
+            base = s[ci] * 64 + ((c & 15) >> 3)
+            bit = 7 - (c & 7)
+            y = ybase + (((t[(x * xs + phase) & 255] - 128) * amp) >> 7)
+            r = 0
+            while r < 32:
+                if (g[base + r * 2] >> bit) & 1:
+                    col = t[256 + ((r + goff) & 63)]
+                    k = 0
+                    while k < ys:
+                        yy = y + r * ys + k
+                        if cy0 <= yy < cy1:
+                            p[yy * 240 + x] = col
+                            if shadow:
+                                yd = yy + 3
+                                if yd < cy1 and x + 3 < 240:
+                                    if p[yd * 240 + x + 3] != col:
+                                        p[yd * 240 + x + 3] = shadow
+                        k += 1
+                r += 1
         x += 1
 
 
