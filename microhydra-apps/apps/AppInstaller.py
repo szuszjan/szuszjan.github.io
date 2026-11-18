@@ -120,6 +120,11 @@ def download(branch, filename):
     """Stream a file to /apps (via a temp file, so a failed download keeps the old app)."""
     tmp = _APPS_DIR + filename + ".part"
     dest = _APPS_DIR + filename
+    if "/" in filename:  # app folder
+        try:
+            os.mkdir(_APPS_DIR + filename.split("/")[0])
+        except OSError:
+            pass
     r = get(_REPO + branch + _PATH + filename)
     if r.status_code != 200:
         r.close()
@@ -188,7 +193,7 @@ def choose(apps):
             box = "[x]" if i in chosen else "[ ]"
             DISPLAY.text(box, 2, y, WHITE if i in chosen else MID)
             DISPLAY.text(app["name"], 30, y, FG if i == sel else WHITE)
-            if app["file"] in have:
+            if app.get("dir", app.get("file")) in have:
                 DISPLAY.text("installed", _W - 74, y, GREEN)
         desc = apps[sel].get("desc", "")
         DISPLAY.hline(0, _H - 20, _W, MID)
@@ -215,7 +220,12 @@ def main():
         for app in picked:
             log("%s..." % app["name"])
             try:
-                size = download(branch, app["file"])
+                if "dir" in app:
+                    size = 0
+                    for f in app["files"]:
+                        size += download(branch, app["dir"] + "/" + f)
+                else:
+                    size = download(branch, app["file"])
                 log("  ok, %d bytes" % size, GREEN)
                 ok += 1
             except Exception as e:  # noqa: BLE001

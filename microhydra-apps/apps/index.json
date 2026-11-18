@@ -1,5 +1,6 @@
 [
   {"name": "AppInstaller", "file": "AppInstaller.py", "desc": "This installer (update it here)."},
+  {"name": "NeonHydra", "dir": "NeonHydra", "files": ["__init__.py", "engine.py", "fx.py", "parts.py", "song.py"], "desc": "3 minute old school demo with a live 4 channel chiptune soundtrack."},
   {"name": "LogicProbe", "file": "LogicProbe.py", "desc": "Logic analyzer on Grove G1/G2, UART + I2C decoder, VCD export."},
   {"name": "Tuner", "file": "Tuner.py", "desc": "Microphone tuner: chromatic, guitar, bass, ukulele, violin."},
   {"name": "BitTrainer", "file": "BitTrainer.py", "desc": "Binary / decimal / hex conversion trainer."},

@@ -46,6 +46,7 @@ MicroHydra sama czyta apki z folderu `apps` na karcie SD, a M5Launcher potrafi u
    i rozpakuj ją (np. w aplikacji Pliki od Google). Pliki apek są w `microhydra-apps/apps/`.
 2. Na Cardputerze uruchom M5Launcher, włącz tryb USB drive i podłącz Cardputera kablem USB-C do telefonu.
 3. Skopiuj wybrane pliki `.py` do folderu **`apps`** w głównym katalogu karty (jeśli go nie ma, utwórz go).
+   Demo **NeonHydra** to folder: skopiuj cały folder `NeonHydra` (z 5 plikami w środku) do `apps`.
    `AppInstaller.py` i `index.json` nie są potrzebne.
 4. Odłącz kabel, wyjdź z trybu USB drive i uruchom MicroHydrę. Apki pojawią się w launcherze
    (z ikonką karty SD).
@@ -76,6 +77,7 @@ nie są potrzebne do pisania, apki przyjmują je też bez `FN`.
 | **TypeRush** | Test szybkości pisania (WPM + celność), słowa EN albo PL (bez polskich znaków), 15/30/60 s. Rekord zapisuje się w `/typerush.txt`. | `TAB` język, `1/2/3` czas, `ENT` start |
 | **ElecKit** | Kalkulator elektronika: kod paskowy rezystora (rysuje rezystor), prawo Ohma i moc (wpisujesz 2 z 4 wartości), rezystor do LED z dobraniem wartości z szeregów E12/E24. Liczby można wpisywać z przedrostkiem: `4k7`, `20m`, `1M`. | `TAB` następne narzędzie |
 | **Morse** | Morse w trzech trybach: **SEND** (wpisujesz tekst i go odtwarzasz), **KEY** (`SPC` albo `G0` jako klucz telegraficzny, dekodowanie na żywo), **LEARN** (nauka ze słuchu metodą Kocha). | `TAB` tryb, `FN+;` / `FN+.` prędkość |
+| **NeonHydra** | Demo w stylu C64 (ok. 3 min): loader „z kasety”, raster bars, logo, sinusowy scroller, plasma, kule wektorowe, tunel, twister, rotozoomer i ogień z napisami końcowymi. Własny 4-kanałowy chiptune (bas piłokształtny, arpeggia 50 Hz, lead z PWM, perkusja) syntezowany na żywo; sekwencer działa w callbacku dźwięku, więc rytm się nie rozjeżdża. **To folder**: skopiuj cały `NeonHydra/` do `apps`. | `SPC` następna część, `;` `.` głośność, `f` FPS |
 | **LogicProbe** | Mini analizator logiczny na pinach Grove (G1, G2). Szybka pętla w viperze, trigger (zbocze narastające/opadające/dowolne) z pre-triggerem, zoom i przewijanie, pomiar częstotliwości i wypełnienia, dekoder **UART** i **I2C**, zapis do `.vcd` (do otwarcia w PulseView/GTKWave). Ma tryb DEMO z przykładowymi sygnałami i wyjście testowe PWM na G2. | `SPC` ciągle, `ENT` pojedynczy pomiar, `;` `.` zoom, `,` `/` przewijanie, `s` zapis, `TAB` ustawienia |
 | **Tuner** | Stroik na wbudowanym mikrofonie (PDM, algorytm YIN w viperze). Tryby: chromatyczny, gitara, bas, ukulele, skrzypce; w trybach instrumentów sam wybiera najbliższą strunę. Wskazówka ±50 centów, historia wysokości, regulowane A4 (415–466 Hz). | `TAB` tryb, `;` `.` A4 ±1 Hz, `SPC` zatrzymaj odczyt |
 
@@ -87,6 +89,13 @@ nie są potrzebne do pisania, apki przyjmują je też bez `FN`.
 - Trigger czeka maksymalnie ok. 1 s, potem apka sprawdza klawisze i próbuje dalej („waiting for trigger…”).
 - Pliki `.vcd` trafiają na kartę SD (jeśli jest), inaczej do głównego katalogu flasha (`la_001.vcd`, …).
 - Na Cardputerze ADV można dopisać piny ze złącza EXT w `PINS` na początku pliku (maks. 4, w obrębie 8 kolejnych numerów GPIO).
+
+### NeonHydra: uwagi
+
+- Głośność dema zależy od głośności MicroHydry (domyślnie 2 jest dość cicho). W demie możesz ją zmieniać `;` / `.`, a wybrana wartość zostaje też w ustawieniach.
+- Obraz i muzyka liczą się na żywo. Jeśli jakaś część działa wolniej, muzyka i tak trzyma tempo, a grafika tylko gubi klatki (`f` pokazuje FPS).
+- Struktura utworu: intro (8 taktów), temat A (16), temat B (16), przerwa (8), narastanie (4), temat A2 (16), temat C w wyższej tonacji (16), outro (8), potem „THE END” i demo zaczyna się od nowa.
+- Muzykę można zmieniać w `song.py` (melodie zapisane jako nuty, np. `"E5 - - - D5 - C5 -"`).
 
 ### Tuner: uwagi
 
