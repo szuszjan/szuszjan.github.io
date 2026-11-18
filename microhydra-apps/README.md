@@ -28,6 +28,23 @@ nie są potrzebne do pisania, apki przyjmują je też bez `FN`.
 | **TypeRush** | Test szybkości pisania (WPM + celność), słowa EN albo PL (bez polskich znaków), 15/30/60 s. Rekord zapisuje się w `/typerush.txt`. | `TAB` język, `1/2/3` czas, `ENT` start |
 | **ElecKit** | Kalkulator elektronika: kod paskowy rezystora (rysuje rezystor), prawo Ohma i moc (wpisujesz 2 z 4 wartości), rezystor do LED z dobraniem wartości z szeregów E12/E24. Liczby można wpisywać z przedrostkiem: `4k7`, `20m`, `1M`. | `TAB` następne narzędzie |
 | **Morse** | Morse w trzech trybach: **SEND** (wpisujesz tekst i go odtwarzasz), **KEY** (`SPC` albo `G0` jako klucz telegraficzny, dekodowanie na żywo), **LEARN** (nauka ze słuchu metodą Kocha). | `TAB` tryb, `FN+;` / `FN+.` prędkość |
+| **LogicProbe** | Mini analizator logiczny na pinach Grove (G1, G2). Szybka pętla w viperze, trigger (zbocze narastające/opadające/dowolne) z pre-triggerem, zoom i przewijanie, pomiar częstotliwości i wypełnienia, dekoder **UART** i **I2C**, zapis do `.vcd` (do otwarcia w PulseView/GTKWave). Ma tryb DEMO z przykładowymi sygnałami i wyjście testowe PWM na G2. | `SPC` ciągle, `ENT` pojedynczy pomiar, `;` `.` zoom, `,` `/` przewijanie, `s` zapis, `TAB` ustawienia |
+| **Tuner** | Stroik na wbudowanym mikrofonie (PDM, algorytm YIN w viperze). Tryby: chromatyczny, gitara, bas, ukulele, skrzypce; w trybach instrumentów sam wybiera najbliższą strunę. Wskazówka ±50 centów, historia wysokości, regulowane A4 (415–466 Hz). | `TAB` tryb, `;` `.` A4 ±1 Hz, `SPC` zatrzymaj odczyt |
+
+### LogicProbe: podłączenie i ograniczenia
+
+- Złącze Grove: **G1 = CH1**, **G2 = CH2**, do tego GND. Kolory przewodów różnią się między kablami, więc sprawdź pinout swojego Cardputera. Do dekodowania I2C: SCL → G1, SDA → G2.
+- Tylko sygnały **3,3 V**! Sygnałów 5 V nie podłączaj bezpośrednio (użyj dzielnika napięcia albo konwertera poziomów).
+- Częstotliwość próbkowania zależy od tego, jak szybko MicroPython wykonuje pętlę. Apka kalibruje ją przy starcie, a wartość zmierzoną przy każdym pomiarze bez triggera pokazuje na górnym pasku. Szacuję, że wyjdzie rzędu 1 MS/s (sprawdź na pasku przy ustawieniu `max`). To wystarczy na UART do 115200 i I2C 100 kHz, ale nie na SPI kilka MHz. Przerwania systemowe mogą czasem rozjechać pojedyncze próbki.
+- Trigger czeka maksymalnie ok. 1 s, potem apka sprawdza klawisze i próbuje dalej („waiting for trigger…”).
+- Pliki `.vcd` trafiają na kartę SD (jeśli jest), inaczej do głównego katalogu flasha (`la_001.vcd`, …).
+- Na Cardputerze ADV można dopisać piny ze złącza EXT w `PINS` na początku pliku (maks. 4, w obrębie 8 kolejnych numerów GPIO).
+
+### Tuner: uwagi
+
+- Mikrofon (G43/G46) dzieli pin zegara z głośnikiem, więc stroik nie wydaje dźwięków.
+- Najlepiej trzymać Cardputer blisko instrumentu. Najniższa struna basu (E1, 41 Hz) jest dla małego mikrofonu trudna; wtedy pomaga stroić z flażoletu na 12. progu.
+- Zakres to ok. 38 Hz – 1,7 kHz. Na atrapie sygnału dokładność wynosi ±2 centy w całym zakresie gitarowym.
 
 > Apki są przetestowane na atrapie API MicroHydry w CPythonie (wszystkie ekrany i
 > klawisze przeklikane skryptem, tekst mieści się w 240×135), ale **nie** na prawdziwym
@@ -41,14 +58,14 @@ Trudność: ★ prosta, ★★ średnia, ★★★ większy projekt.
 
 ### Elektronika i hardware
 - **LogicLab Mini** ★★: wpisujesz wyrażenie (`A&(B|!C)`) i dostajesz tablicę prawdy, mapę Karnaugha i postać minimalną. Kieszonkowy towarzysz LogicLab ze strony.
-- **Skaner I2C** ★: skanuje Grove (SDA=G2, SCL=G1), pokazuje adresy i zgaduje, co to za układ (0x3C OLED, 0x76 BME280, 0x68 MPU6050…).
-- **Mini analizator logiczny** ★★★: próbkuje 1–2 piny Grove i rysuje przebiegi, mierzy częstotliwość i wypełnienie. Prosty dekoder UART/I2C.
+- **Skaner I2C** ★: skanuje urządzenia na Grove (G1/G2), pokazuje adresy i zgaduje, co to za układ (0x3C OLED, 0x76 BME280, 0x68 MPU6050…).
+- ~~**Mini analizator logiczny**~~: zrobione, **LogicProbe**.
 - **Terminal UART** ★★: rozmowa z Arduino/ESP przez Grove, wybór prędkości, podgląd HEX, makra pod klawiszami F1–F10.
 - **Tester serw / PWM** ★: generuje PWM na pinie Grove, ustawiasz kąt albo wypełnienie strzałkami.
 - **Emulator 8-bitowego CPU** ★★★: własny prosty zestaw instrukcji z asemblerem w edytorze, krokowanie, podgląd rejestrów i pamięci. Dobre do nauki, jak działa procesor.
 
 ### Mikrofon i dźwięk
-- **Stroik** ★★: PDM mikrofon + autokorelacja, pokazuje nutę i odchyłkę w centach.
+- ~~**Stroik**~~: zrobione, **Tuner**.
 - **Miernik hałasu / spektrum** ★★: poziom dB i prosty wykres FFT na żywo.
 - **Metronom + tap tempo** ★: BPM ustawiasz albo wystukujesz spacją; akcent na pierwszą miarę.
 - **Mini sekwencer / drum machine** ★★★: siatka 16 kroków na klawiaturze, kilka próbek, zapis patternów na SD.
