@@ -7,12 +7,46 @@ na M5Stack Cardputer. Folder `apps/` zawiera gotowe aplikacje w postaci pojedync
 
 MicroHydra uruchamia każdy plik `.py` z folderu `apps` na pamięci flash albo na karcie SD.
 
+### Tylko Cardputer (+ telefon do czytania instrukcji): przez Wi-Fi
+
+1. **Ustaw Wi-Fi:** w launcherze otwórz **Settings** i wpisz `wifi_ssid` oraz `wifi_pass`.
+   Może to być hotspot z telefonu (2,4 GHz).
+2. **Utwórz plik:** otwórz **Files**, zejdź na sam dół listy do pozycji `/.../`, wybierz **New File**
+   i wpisz nazwę `Get.py`. Potem otwórz ten plik (**open**), uruchomi się edytor.
+3. **Przepisz 10 linijek** z pliku [`Get.py`](Get.py) (bez wcięć, więc łatwo):
+   ```python
+   import network,requests,time,machine
+   from lib.hydra.config import Config
+   c=Config()
+   w=network.WLAN(network.STA_IF)
+   w.active(True)
+   w.connect(c['wifi_ssid'],c['wifi_pass'])
+   while not w.isconnected():time.sleep(1)
+   r=requests.get('https://raw.githubusercontent.com/szuszjan/szuszjan.github.io/ccr-7347e944-2ijb9a/microhydra-apps/apps/AppInstaller.py')
+   open('/apps/AppInstaller.py','w').write(r.text)
+   machine.reset()
+   ```
+   Na klawiaturze Cardputera: `(` `)` to Shift+9/0, `:` to Shift+`;`, `_` to Shift+`-`, apostrof `'` jest obok Enter.
+4. **Uruchom:** wciśnij **G0** (przycisk z boku), wybierz **Run…** i potem **Restart and run**.
+   Przez kilka-kilkanaście sekund ekran stoi na „Restarting…” (łączy się z Wi-Fi i pobiera plik),
+   potem Cardputer wraca do launchera.
+5. W launcherze pojawi się **AppInstaller**. Uruchom go, zaznacz apki (`SPC`, `a` zaznacza wszystkie)
+   i wciśnij `ENT`. Instalator pobiera je z GitHuba do `/apps/`. Później służy też do aktualizacji.
+   Plik `Get.py` możesz potem usunąć w Files.
+
+Jeśli po kroku 4 AppInstaller się nie pojawi, najczęściej winne jest Wi-Fi (sieć 5 GHz albo literówka
+w haśle) albo literówka w adresie. Możesz też uruchomić `Get.py` przez **Run here**, wtedy zobaczysz ewentualny błąd.
+
+### Inne sposoby
+
 - **Karta SD:** skopiuj pliki z `apps/` do `/apps/` na karcie i włóż ją do Cardputera.
 - **USB (mpremote):**
   ```sh
   mpremote connect /dev/ttyACM0 cp apps/BitTrainer.py :/apps/BitTrainer.py
   ```
   (albo przeciągnij plik w Thonny)
+- **Karta SD przez telefon:** jeśli masz czytnik microSD na USB-C (OTG), pobierz pliki z folderu `apps/`
+  na telefonie i skopiuj je do folderu `apps` na karcie.
 
 Po restarcie apka pojawia się w launcherze. **Wyjście z każdej apki:** `ESC` (FN + `` ` ``),
 przycisk `G0` albo systemowy skrót MicroHydry `OPT + q`.
@@ -24,6 +58,7 @@ nie są potrzebne do pisania, apki przyjmują je też bez `FN`.
 
 | Apka | Co robi | Sterowanie |
 |---|---|---|
+| **AppInstaller** | Instaluje i aktualizuje apki z tego folderu przez Wi-Fi (lista w `apps/index.json`). | `SPC` zaznacz, `a` wszystkie, `ENT` instaluj |
 | **BitTrainer** | Trening zamiany BIN / DEC / HEX (4 albo 8 bitów). Bity widać jako „diody”; przy DEC→BIN diody zapalają się na żywo podczas pisania. Liczy wynik i serię poprawnych odpowiedzi. | `;` `.` menu, `TAB` 4/8 bit, `ENT` zatwierdź |
 | **TypeRush** | Test szybkości pisania (WPM + celność), słowa EN albo PL (bez polskich znaków), 15/30/60 s. Rekord zapisuje się w `/typerush.txt`. | `TAB` język, `1/2/3` czas, `ENT` start |
 | **ElecKit** | Kalkulator elektronika: kod paskowy rezystora (rysuje rezystor), prawo Ohma i moc (wpisujesz 2 z 4 wartości), rezystor do LED z dobraniem wartości z szeregów E12/E24. Liczby można wpisywać z przedrostkiem: `4k7`, `20m`, `1M`. | `TAB` następne narzędzie |

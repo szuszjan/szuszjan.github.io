@@ -1,0 +1,9 @@
+[
+  {"name": "AppInstaller", "file": "AppInstaller.py", "desc": "This installer (update it here)."},
+  {"name": "LogicProbe", "file": "LogicProbe.py", "desc": "Logic analyzer on Grove G1/G2, UART + I2C decoder, VCD export."},
+  {"name": "Tuner", "file": "Tuner.py", "desc": "Microphone tuner: chromatic, guitar, bass, ukulele, violin."},
+  {"name": "BitTrainer", "file": "BitTrainer.py", "desc": "Binary / decimal / hex conversion trainer."},
+  {"name": "TypeRush", "file": "TypeRush.py", "desc": "Typing speed test (WPM), EN / PL words."},
+  {"name": "ElecKit", "file": "ElecKit.py", "desc": "Resistor colors, Ohm's law, LED resistor calculator."},
+  {"name": "Morse", "file": "Morse.py", "desc": "Morse sender, straight key decoder and trainer."}
+]
