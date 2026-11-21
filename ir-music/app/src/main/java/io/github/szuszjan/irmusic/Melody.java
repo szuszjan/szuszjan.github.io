@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
  *   !pluck !lead !wah …                  – barwa dla bieżącego głosu (preset)
  *   !d30 !v20 !g50 !global               – wypełnienie %, vibrato w centach, glissando ms, barwa z UI
  *   !t136  !mix  !arp                    – tempo i tryb polifonii całego utworu
+ *   [C4 E4 G4]x4                         – powtórzenie (można zagnieżdżać)
  * </pre>
  */
 final class Melody {
@@ -62,6 +63,7 @@ final class Melody {
     private static final Pattern FREQ = Pattern.compile("^\\d+(?:\\.\\d+)?$");
     private static final Pattern LEN = Pattern.compile("^(\\d+)(\\.?)$");
     private static final Pattern VOICE = Pattern.compile("^@(\\d)$");
+    private static final Pattern REPEAT = Pattern.compile("\\[([^\\[\\]]*)\\]\\s*[xX*](\\d+)");
     private static final Pattern DIRECTIVE = Pattern.compile("^!([a-zA-Z]+)(\\d*)$");
 
     private static final int[] SEMI = {9, 11, 0, 2, 4, 5, 7}; // A B C D E F G
@@ -87,7 +89,31 @@ final class Melody {
         return b;
     }
 
+    /** Usuwa komentarze i rozwija powtórzenia [ … ]xN. */
+    static String expand(String text) {
+        StringBuilder clean = new StringBuilder();
+        for (String line : text.split("\n")) {
+            int c = line.indexOf("//");
+            clean.append(c >= 0 ? line.substring(0, c) : line).append('\n');
+        }
+        String s = clean.toString();
+        while (true) {
+            Matcher m = REPEAT.matcher(s);
+            if (!m.find()) break;
+            int n = Integer.parseInt(m.group(2));
+            if (n < 1 || n > 999) throw new IllegalArgumentException("zła liczba powtórzeń: x" + n);
+            StringBuilder rep = new StringBuilder(" ");
+            for (int i = 0; i < n; i++) rep.append(m.group(1)).append(' ');
+            s = s.substring(0, m.start()) + rep + s.substring(m.end());
+            if (s.length() > 2_000_000) throw new IllegalArgumentException("za dużo powtórzeń");
+        }
+        if (s.indexOf('[') >= 0 || s.indexOf(']') >= 0)
+            throw new IllegalArgumentException("niedomknięte [ … ]xN");
+        return s;
+    }
+
     static Song parse(String text) {
+        text = expand(text);
         Song song = new Song();
         List<List<Event>> voices = new ArrayList<>();
         Timbre[] tb = new Timbre[MAX_VOICES];
