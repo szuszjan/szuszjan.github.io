@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="help">Jak to działa: nośna IR (np. 38 kHz) jest włączana i wyłączana z częstotliwością nuty. Odbiornik typu TSOP/VS1838 demoduluje nośną, więc na jego wyjściu pojawia się prostokąt o częstotliwości nuty — widać go na oscyloskopie i słychać po podłączeniu głośnika/słuchawki przez kondensator.\n\nNotacja: nuta + opcjonalnie krzyżyk (#) lub bemol (b) + oktawa + :długość, np. C4:4  D#5:8  Bb3:2  E4:4. (z kropką = 1,5×). R lub P = pauza (R:8). Sama liczba = częstotliwość w Hz, np. 440:4. Domyślnie oktawa 4 i ćwierćnuta.\n\nWskazówki: odbiorniki TSOP najlepiej przenoszą ok. 100–1500 Hz (potrzebują min. ~10 okresów nośnej w paczce i w przerwie). Nośna musi pasować do odbiornika (38 kHz dla TSOP4838/VS1838B). Jeśli telefon ucina dźwięk lub rzuca błędem, zmniejsz maks. długość transmisji lub liczbę wpisów.</string>
+</resources>
