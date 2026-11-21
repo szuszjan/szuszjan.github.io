@@ -68,6 +68,31 @@
             android:fontFamily="monospace"
             android:paddingTop="4dp" />
 
+        <!-- ===== Bytebeat ===== -->
+        <TextView style="@style/Header" android:text="Bytebeat (strumień audio → 1 bit)" />
+        <TextView
+            android:id="@+id/bbName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+        <Spinner
+            android:id="@+id/bbMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+        <LinearLayout
+            android:id="@+id/bbBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+        <CheckBox
+            android:id="@+id/bbLoop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Zapętl" />
+        <LinearLayout style="@style/Row">
+            <Button android:id="@+id/bbStart" style="@style/WideButton" android:text="▶ Graj bytebeat" />
+            <Button android:id="@+id/bbStop" style="@style/WideButton" android:text="■ Stop" />
+        </LinearLayout>
+
         <!-- ===== Barwa ===== -->
         <TextView style="@style/Header" android:text="Barwa dźwięku" />
         <Spinner

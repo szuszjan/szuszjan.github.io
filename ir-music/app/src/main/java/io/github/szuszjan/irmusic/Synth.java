@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -498,6 +500,104 @@ final class Synth {
             t += tmp[0] + tmp[1];
         }
         flush();
+    }
+
+    // =================================================================
+    // Strumień audio (bytebeat) -> 1 bit
+    // =================================================================
+
+    interface SampleSource {
+        double sample(long t);
+    }
+
+    /**
+     * Liczy próbki w osobnym wątku (z wyprzedzeniem), koduje je do 1 bitu i nadaje.
+     *
+     * @param lengthSamples długość utworu (do pętli i wyświetlania czasu)
+     */
+    boolean playStream(final SampleSource src, final int sampleRate, final long lengthSamples,
+                       final long startSample, final boolean loop,
+                       final int mode, final double minRunUs, final double gain) {
+        final ArrayBlockingQueue<double[]> q = new ArrayBlockingQueue<>(80);
+        final double[] END = new double[0];
+        final int block = sampleRate / 20;                        // 50 ms na blok
+        Thread producer = new Thread(() -> {
+            OneBit enc = new OneBit(mode, minRunUs, gain, sampleRate);
+            double dt = enc.dtUs();
+            long t = startSample;
+            boolean cur = false;
+            double dur = 0;
+            try {
+                while (alive()) {
+                    if (!loop && t >= lengthSamples) break;
+                    double[] runs = new double[block + 1];
+                    int k = 0;
+                    for (int i = 0; i < block; i++, t++) {
+                        boolean b = enc.step(src.sample(t));
+                        if (b == cur) {
+                            dur += dt;
+                        } else {
+                            runs[k++] = cur ? dur : -dur;     // + = wł., - = wył.
+                            cur = b;
+                            dur = dt;
+                        }
+                    }
+                    double[] out = new double[k + 1];
+                    System.arraycopy(runs, 0, out, 0, k);
+                    out[k] = Double.NaN;                        // znacznik: koniec bloku
+                    while (alive() && !q.offer(out, 50, TimeUnit.MILLISECONDS)) { /* czekaj */ }
+                }
+                if (dur > 0) q.offer(new double[]{cur ? dur : -dur}, 200, TimeUnit.MILLISECONDS);
+                q.offer(END, 200, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ignored) {
+            }
+        }, "bytebeat");
+        producer.setPriority(Thread.MAX_PRIORITY);
+        producer.start();
+
+        // chwila na zapas (~0,5 s)
+        long waitEnd = System.nanoTime() + 3_000_000_000L;
+        while (alive() && q.size() < 10 && producer.isAlive() && System.nanoTime() < waitEnd) {
+            sleepMs(10);
+        }
+
+        double audioUs = startSample * 1e6 / sampleRate;
+        double total = lengthSamples * 1e6 / sampleRate;
+        long shownSec = -1;
+        try {
+            while (alive()) {
+                double[] runs = q.poll(100, TimeUnit.MILLISECONDS);
+                if (runs == null) continue;
+                if (runs == END) break;
+                for (double r : runs) {
+                    if (Double.isNaN(r)) {
+                        long sec = (long) ((audioUs % total) / 1e6);
+                        if (sec != shownSec) {
+                            shownSec = sec;
+                            l.status(String.format(Locale.US, "%d:%02d / %d:%02d   bufor %d ms",
+                                    sec / 60, sec % 60, (long) (total / 6e7), (long) (total / 1e6) % 60, q.size() * 50));
+                        }
+                        continue;
+                    }
+                    if (r > 0) on(r);
+                    else off(-r);
+                    audioUs += Math.abs(r);
+                }
+            }
+        } catch (InterruptedException ignored) {
+        }
+        flush();
+        producer.interrupt();
+        return alive();
+    }
+
+    private void sleepMs(long ms) {
+        if (!realtime) return;
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // =================================================================

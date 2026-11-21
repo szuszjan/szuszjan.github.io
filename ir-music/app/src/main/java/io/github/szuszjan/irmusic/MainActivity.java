@@ -41,11 +41,12 @@ public class MainActivity extends Activity {
     private EditText carrierEdit, notesEdit, bpmEdit, maxChunkEdit, maxEntriesEdit, gapEdit, minPulseEdit, patAEdit, patBEdit;
     private SeekBar toneBar;
     private TextView statusText, toneLabel, nowPlaying, octLabel, patALabel, patBLabel;
-    private Spinner songSpinner, presetSpinner, polySpinner, patternSpinner;
+    private Spinner songSpinner, presetSpinner, polySpinner, patternSpinner, bbModeSpinner;
+    private CheckBox bbLoopBox;
     private CheckBox loopBox;
     private Button toneBtn;
 
-    private Slider dStart, dEnd, lfo, vibDepth, vibRate, vibDelay, glide, arpMs, mixPulse;
+    private Slider dStart, dEnd, lfo, vibDepth, vibRate, vibDelay, glide, arpMs, mixPulse, bbMinRun, bbGain, bbStartPos;
     private final List<Slider> sliders = new ArrayList<>();
 
     private volatile boolean loop;
@@ -162,6 +163,18 @@ public class MainActivity extends Activity {
         setupSpinner(polySpinner, new String[]{
                 "Arpeggio (szybkie przełączanie dźwięków)",
                 "Miks impulsowy (prawdziwe akordy)"}, pos -> {});
+
+        // --- bytebeat ---
+        ((TextView) findViewById(R.id.bbName)).setText("Utwór: " + Bytebeat.NAME);
+        bbModeSpinner = findViewById(R.id.bbMode);
+        bbLoopBox = findViewById(R.id.bbLoop);
+        setupSpinner(bbModeSpinner, OneBit.MODES, pos -> {});
+        LinearLayout bb = findViewById(R.id.bbBox);
+        bbMinRun = new Slider(bb, "bbMinRun", "Min. długość stanu: %.0f µs (TSOP ≈ 250–300)", 50, 1000, 10, 300);
+        bbGain = new Slider(bb, "bbGain", "Wzmocnienie: %.2f×", 0.5, 6, 0.25, 3);
+        bbStartPos = new Slider(bb, "bbStart", "Start od: %.0f s", 0, Math.floor(Bytebeat.LENGTH_S) - 1, 1, 0);
+        findViewById(R.id.bbStart).setOnClickListener(v -> playBytebeat());
+        findViewById(R.id.bbStop).setOnClickListener(v -> stopAll());
 
         // --- melodie ---
         setupSpinner(songSpinner, Songs.NAMES, pos -> {
@@ -499,6 +512,21 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void playBytebeat() {
+        if (!checkIr()) return;
+        stopAll();
+        final Synth sy = newSynth(readSettings());
+        final long len = Math.round(Bytebeat.LENGTH_S * Bytebeat.R);
+        final long start = Math.round(bbStartPos.get() * Bytebeat.R);
+        final boolean lp = bbLoopBox.isChecked();
+        final int mode = bbModeSpinner.getSelectedItemPosition();
+        final double minRun = bbMinRun.get(), gain = bbGain.get();
+        nowPlaying.setText("liczę bufor…");
+        exec.execute(() -> {
+            if (sy.playStream(Bytebeat::sample, Bytebeat.R, len, start, lp, mode, minRun, gain)) setNow("koniec");
+        });
+    }
+
     private void toggleTone() {
         if (toneGen >= 0 && gen.get() == toneGen) {
             stopAll();
@@ -574,6 +602,7 @@ public class MainActivity extends Activity {
         int preset = sp.getInt("preset", 0);
         if (preset >= 0 && preset < Timbre.PRESETS.length) presetSpinner.setSelection(preset);
         polySpinner.setSelection(sp.getInt("poly", 0) == 1 ? 1 : 0);
+        bbModeSpinner.setSelection(sp.getInt("bbMode", OneBit.SIGMA_DELTA) == 0 ? 0 : 1);
         int pat = sp.getInt("pattern", 0);
         if (pat < 0 || pat >= Synth.PATTERNS.length) pat = 0;
         patternSpinner.setSelection(pat);
@@ -595,6 +624,7 @@ public class MainActivity extends Activity {
                 .putInt("song", songSpinner.getSelectedItemPosition())
                 .putInt("preset", presetSpinner.getSelectedItemPosition())
                 .putInt("poly", polySpinner.getSelectedItemPosition())
+                .putInt("bbMode", bbModeSpinner.getSelectedItemPosition())
                 .putInt("pattern", patternSpinner.getSelectedItemPosition())
                 .putString("patA", patAEdit.getText().toString())
                 .putString("patB", patBEdit.getText().toString());
