@@ -474,8 +474,8 @@ public class MainActivity extends Activity {
         SharedPreferences sp = getPreferences(MODE_PRIVATE);
         carrierEdit.setText(sp.getString("carrier", "38000"));
         dutyBar.setProgress(sp.getInt("duty", 40));
-        notesEdit.setText(sp.getString("notes", Songs.NOTES[3]));
-        bpmEdit.setText(sp.getString("bpm", "140"));
+        notesEdit.setText(sp.getString("notes", Songs.NOTES[Songs.DEFAULT]));
+        bpmEdit.setText(sp.getString("bpm", String.valueOf(Songs.BPM[Songs.DEFAULT])));
         maxChunkEdit.setText(sp.getString("maxChunk", "400"));
         maxEntriesEdit.setText(sp.getString("maxEntries", "1000"));
         gapEdit.setText(sp.getString("gap", "25"));
