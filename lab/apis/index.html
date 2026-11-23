@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rzadkie API — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🧰</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  body { background: radial-gradient(ellipse at 10% -10%, #2a2108, #0b0b0e 50%); min-height: 100dvh; }
+  .page { max-width: 1240px; margin: 0 auto; padding: 70px 18px 40px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -.5px; view-transition-name: lab-title; }
+  .lead { color: var(--dim); margin: 0 0 16px; max-width: 760px; }
+  .tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+  .tools input[type=search] { flex: 1; min-width: 200px; font: 14px inherit; font-family: inherit; color: var(--text); background: rgba(0,0,0,.4); border: 1px solid var(--border-strong); border-radius: 10px; padding: 9px 12px; }
+  .tools .count { font: 12.5px var(--mono); color: var(--dim); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .t { background: #131318; border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .t.off { opacity: .55; }
+  .t.hide { display: none; }
+  .t header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .t h3 { margin: 0; font-size: 15.5px; display: flex; gap: 8px; align-items: center; }
+  .t .api { font: 11px var(--mono); color: var(--dimmer); margin-top: 2px; word-break: break-all; }
+  .t .sup { font: 600 10.5px var(--mono); padding: 4px 8px; border-radius: 100px; white-space: nowrap; }
+  .t .sup.ok { color: var(--ok); background: rgba(74,222,128,.08); }
+  .t .sup.no { color: var(--bad); background: rgba(248,113,113,.08); }
+  .t p { margin: 0; color: var(--dim); font-size: 13px; }
+  .ctl { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .ctl .btn { padding: 7px 10px; font-size: 12px; }
+  .ctl input[type=text], .ctl select { flex: 1; min-width: 120px; padding: 6px 8px; font-size: 12.5px; }
+  .out { font: 12px/1.5 var(--mono); color: #d4d4dc; background: rgba(0,0,0,.35); border-radius: 9px; padding: 8px 10px; min-height: 36px; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }
+  .out:empty::before { content: "—"; color: var(--dimmer); }
+  .out .e { color: var(--bad); }
+  .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 5px; vertical-align: middle; margin-right: 6px; border: 1px solid rgba(255,255,255,.3); }
+  video.mini { width: 100%; max-height: 180px; border-radius: 10px; background: #000; display: none; object-fit: cover; }
+  .pad { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .pad span { width: 22px; height: 22px; border-radius: 6px; background: rgba(255,255,255,.08); font-size: 10px; display: grid; place-items: center; }
+  .pad span.on { background: var(--accent); color: #000; }
+  .axis { height: 6px; background: rgba(255,255,255,.08); border-radius: 3px; margin: 3px 0; position: relative; }
+  .axis i { position: absolute; top: 0; bottom: 0; left: 50%; width: 4px; margin-left: -2px; background: #fbbf24; border-radius: 2px; }
+</style>
+</head>
+<body>
+<a class="lab-back" href="../">← Lab</a>
+<div class="page">
+  <h1>Rzadkie API</h1>
+  <p class="lead">Kilkadziesiąt API przeglądarki, o których mało kto wie. Każdy kafelek sam sprawdza, czy twoja przeglądarka obsługuje dane API, i pozwala od razu go użyć. Część działa tylko na Androidzie, część tylko na komputerze, część tylko w Chrome.</p>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Szukaj API…">
+    <label style="font-size:13px;color:var(--dim)"><input type="checkbox" id="onlyOk"> tylko działające</label>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script src="../common.js"></script>
+<script>
+const TILES = [];
+const tile = o => TILES.push(o);
+const btn = (c, label, fn, cls = '') => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = label; b.onclick = async () => { try { await fn(b); } catch (e) { fail(c.out, e); } }; c.appendChild(b); return b; };
+const input = (c, ph, val = '') => { const i = document.createElement('input'); i.type = 'text'; i.placeholder = ph; i.value = val; c.appendChild(i); return i; };
+const say = (out, t) => { out.textContent = t; };
+const fail = (out, e) => { out.innerHTML = ''; const s = document.createElement('span'); s.className = 'e'; s.textContent = (e && (e.name ? e.name + ': ' : '') + (e.message || e)) || 'błąd'; out.appendChild(s); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ============ kafelki ============
+tile({ name: 'EyeDropper', icon: '🎯', api: 'new EyeDropper().open()', desc: 'Pipeta: pobiera kolor z dowolnego piksela na ekranie, także spoza przeglądarki.',
+  ok: () => 'EyeDropper' in window,
+  ui: c => btn(c, 'Wybierz kolor z ekranu', async () => {
+    const { sRGBHex } = await new EyeDropper().open();
+    c.out.innerHTML = `<span class="swatch" style="background:${sRGBHex}"></span>${sRGBHex}`;
+    navigator.clipboard?.writeText(sRGBHex).catch(() => {});
+  }) });
+
+tile({ name: 'Document Picture-in-Picture', icon: '🪟', api: 'documentPictureInPicture.requestWindow()', desc: 'Okno „zawsze na wierzchu” z dowolnym HTML, nie tylko z wideo. Tu: stoper, który pływa nad innymi aplikacjami.',
+  ok: () => 'documentPictureInPicture' in window,
+  ui: c => btn(c, 'Otwórz pływający stoper', async () => {
+    const win = await documentPictureInPicture.requestWindow({ width: 280, height: 150 });
+    win.document.body.style.cssText = 'margin:0;display:grid;place-items:center;height:100vh;background:#0b0b0e;color:#fff;font:700 42px ui-monospace,monospace';
+    const d = win.document.createElement('div'); win.document.body.appendChild(d);
+    const t0 = performance.now();
+    const tick = () => { if (win.closed) return; const s = (performance.now() - t0) / 1000; d.textContent = `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`; win.requestAnimationFrame(tick); };
+    tick();
+    say(c.out, 'Okno otwarte. Przełącz się do innej aplikacji, a stoper zostanie na wierzchu.');
+    win.addEventListener('pagehide', () => say(c.out, 'Zamknięto okno PiP.'));
+  }) });
+
+tile({ name: 'Screen Wake Lock', icon: '☀️', api: "navigator.wakeLock.request('screen')", desc: 'Nie pozwala ekranowi zgasnąć, przydatne przy przepisach, nawigacji i prezentacjach.',
+  ok: () => 'wakeLock' in navigator,
+  ui: c => { let lock = null; btn(c, 'Włącz / wyłącz', async b => {
+    if (lock) { await lock.release(); lock = null; b.classList.remove('on'); return; }
+    lock = await navigator.wakeLock.request('screen'); b.classList.add('on');
+    say(c.out, 'Blokada aktywna: ekran nie zgaśnie, dopóki karta jest widoczna.');
+    lock.addEventListener('release', () => { say(c.out, 'Blokada zwolniona.'); b.classList.remove('on'); lock = null; });
+  }); } });
+
+tile({ name: 'Web Share', icon: '📤', api: 'navigator.share({ files })', desc: 'Natywne menu udostępniania systemu. Udostępnia link albo wygenerowany w locie obrazek PNG.',
+  ok: () => 'share' in navigator,
+  ui: c => {
+    btn(c, 'Udostępnij link', () => navigator.share({ title: 'Web Lab', text: 'Eksperymenty z rzadkimi API przeglądarki', url: location.href.replace(/apis\/?$/, '') }));
+    btn(c, 'Udostępnij obrazek', async () => {
+      const cv = document.createElement('canvas'); cv.width = 600; cv.height = 300; const x = cv.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 600, 300); g.addColorStop(0, '#8b7bff'); g.addColorStop(1, '#ff5f8f'); x.fillStyle = g; x.fillRect(0, 0, 600, 300);
+      x.fillStyle = '#fff'; x.font = '800 64px system-ui'; x.fillText('Web Lab 🧪', 40, 170);
+      const file = new File([await new Promise(r => cv.toBlob(r))], 'weblab.png', { type: 'image/png' });
+      if (!navigator.canShare?.({ files: [file] })) throw new Error('Ta przeglądarka nie udostępnia plików');
+      await navigator.share({ files: [file], title: 'Web Lab' });
+    });
+  } });
+
+tile({ name: 'Vibration', icon: '📳', api: 'navigator.vibrate([…])', desc: 'Wzorce wibracji, np. SOS alfabetem Morse’a. Android tak, iOS nie.',
+  ok: () => 'vibrate' in navigator,
+  ui: c => {
+    btn(c, 'Krótka', () => navigator.vibrate(40));
+    btn(c, 'SOS', () => navigator.vibrate([100, 60, 100, 60, 100, 200, 300, 60, 300, 60, 300, 200, 100, 60, 100, 60, 100]));
+    btn(c, 'Bicie serca', () => navigator.vibrate([80, 120, 160, 600, 80, 120, 160]));
+  } });
+
+tile({ name: 'Speech Synthesis', icon: '🗣️', api: 'speechSynthesis.speak()', desc: 'Synteza mowy z głosami systemowymi, także po polsku.',
+  ok: () => 'speechSynthesis' in window,
+  ui: c => {
+    const t = input(c, 'Tekst do przeczytania', 'Cześć! Mówię do ciebie z przeglądarki.');
+    const sel = document.createElement('select'); c.appendChild(sel);
+    const fill = () => { const vs = speechSynthesis.getVoices(); sel.innerHTML = vs.map((v, i) => `<option value="${i}" ${v.lang.startsWith('pl') ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join(''); };
+    fill(); speechSynthesis.onvoiceschanged = fill;
+    btn(c, '▶ Mów', () => { const u = new SpeechSynthesisUtterance(t.value); const v = speechSynthesis.getVoices()[sel.value]; if (v) { u.voice = v; u.lang = v.lang; } speechSynthesis.speak(u); say(c.out, `Głosów w systemie: ${speechSynthesis.getVoices().length}`); });
+  } });
+
+tile({ name: 'Speech Recognition', icon: '🎙️', api: 'new SpeechRecognition()', desc: 'Rozpoznawanie mowy na żywo, z wynikami pośrednimi.',
+  ok: () => 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window,
+  ui: c => { let rec = null; btn(c, '🎙️ Start / stop', b => {
+    if (rec) { rec.stop(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    rec = new SR(); rec.lang = 'pl-PL'; rec.interimResults = true; rec.continuous = true;
+    let final = '';
+    rec.onresult = e => { let interim = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) final += r[0].transcript + ' '; else interim += r[0].transcript; } c.out.textContent = final + (interim ? '… ' + interim : ''); };
+    rec.onerror = e => fail(c.out, e.error);
+    rec.onend = () => { b.classList.remove('on'); rec = null; };
+    rec.start(); b.classList.add('on'); say(c.out, 'Mów…');
+  }); } });
+
+tile({ name: 'Battery Status', icon: '🔋', api: 'navigator.getBattery()', desc: 'Poziom baterii i ładowanie. Firefox i Safari usunęły to API, bo nadawało się do fingerprintingu.',
+  ok: () => 'getBattery' in navigator,
+  ui: c => btn(c, 'Sprawdź', async () => {
+    const b = await navigator.getBattery();
+    const show = () => say(c.out, `poziom: ${Math.round(b.level * 100)}%\nładowanie: ${b.charging ? 'tak' : 'nie'}\n${b.charging ? 'do pełna' : 'do rozładowania'}: ${(b.charging ? b.chargingTime : b.dischargingTime) === Infinity ? '∞' : Math.round((b.charging ? b.chargingTime : b.dischargingTime) / 60) + ' min'}`);
+    show(); b.onlevelchange = b.onchargingchange = show;
+  }) });
+
+tile({ name: 'Network Information', icon: '📶', api: 'navigator.connection', desc: 'Szacowany typ łącza, przepustowość, opóźnienie i tryb oszczędzania danych.',
+  ok: () => 'connection' in navigator,
+  ui: c => { const show = () => { const n = navigator.connection; say(c.out, `typ: ${n.effectiveType}${n.type ? ' (' + n.type + ')' : ''}\ndownlink: ~${n.downlink} Mb/s\nRTT: ~${n.rtt} ms\nsaveData: ${n.saveData}\nonline: ${navigator.onLine}`); };
+    btn(c, 'Sprawdź', () => { show(); navigator.connection.onchange = show; }); } });
+
+tile({ name: 'Compression Streams', icon: '🗜️', api: "new CompressionStream('gzip')", desc: 'Natywne gzip/deflate w przeglądarce, bez bibliotek. Kompresuje kod tej strony.',
+  ok: () => 'CompressionStream' in window,
+  ui: c => btn(c, 'Skompresuj tę stronę', async () => {
+    const html = document.documentElement.outerHTML;
+    const raw = new TextEncoder().encode(html);
+    const res = {};
+    for (const fmt of ['gzip', 'deflate', 'deflate-raw']) {
+      const t0 = performance.now();
+      const buf = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream(fmt))).arrayBuffer();
+      res[fmt] = [buf.byteLength, performance.now() - t0];
+    }
+    say(c.out, `oryginał: ${(raw.length / 1024).toFixed(1)} KB\n` + Object.entries(res).map(([k, [n, t]]) => `${k.padEnd(11)} ${(n / 1024).toFixed(1)} KB  (${(n / raw.length * 100).toFixed(0)}%, ${t.toFixed(1)} ms)`).join('\n'));
+  }) });
+
+tile({ name: 'Idle Detection', icon: '😴', api: 'new IdleDetector()', desc: 'Wykrywa, czy użytkownik jest bezczynny i czy ekran jest zablokowany, nawet gdy karta jest w tle.',
+  ok: () => 'IdleDetector' in window,
+  ui: c => btn(c, 'Start (próg 60 s)', async () => {
+    if ((await IdleDetector.requestPermission()) !== 'granted') throw new Error('Brak zgody');
+    const d = new IdleDetector();
+    d.addEventListener('change', () => say(c.out, `użytkownik: ${d.userState}\nekran: ${d.screenState}\n${new Date().toLocaleTimeString()}`));
+    await d.start({ threshold: 60000 });
+    say(c.out, 'Nasłuchuję… Zostaw komputer na minutę albo zablokuj ekran.');
+  }) });
+
+tile({ name: 'Badging API', icon: '🔴', api: 'navigator.setAppBadge(n)', desc: 'Licznik na ikonie aplikacji, jak nieprzeczytane wiadomości. Działa dla zainstalowanych PWA.',
+  ok: () => 'setAppBadge' in navigator,
+  ui: c => { let n = 0;
+    btn(c, '+1', async () => { await navigator.setAppBadge(++n); say(c.out, `badge = ${n}`); });
+    btn(c, 'Wyczyść', async () => { n = 0; await navigator.clearAppBadge(); say(c.out, 'wyczyszczono'); }); } });
+
+tile({ name: 'Contact Picker', icon: '📇', api: 'navigator.contacts.select()', desc: 'Systemowy wybór kontaktów: strona dostaje tylko te, które sam zaznaczysz. Chrome na Androidzie.',
+  ok: () => 'contacts' in navigator && 'ContactsManager' in window,
+  ui: c => btn(c, 'Wybierz kontakty', async () => {
+    const props = await navigator.contacts.getProperties();
+    const list = await navigator.contacts.select(props, { multiple: true });
+    say(c.out, list.map(x => `${x.name?.[0] || '?'}  ${x.tel?.[0] || ''}  ${x.email?.[0] || ''}`).join('\n') || 'nic nie wybrano');
+  }) });
+
+tile({ name: 'Barcode Detection', icon: '🔳', api: 'new BarcodeDetector()', desc: 'Skaner kodów QR i kreskowych wbudowany w przeglądarkę. Chrome na Androidzie i macOS.',
+  ok: () => 'BarcodeDetector' in window,
+  ui: c => { let stream = null; const v = document.createElement('video'); v.className = 'mini'; v.playsInline = true; v.muted = true; c.parentElement.insertBefore(v, c.out);
+    btn(c, '📷 Skanuj', async b => {
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; v.style.display = 'none'; b.classList.remove('on'); return; }
+      const formats = await BarcodeDetector.getSupportedFormats();
+      const det = new BarcodeDetector({ formats });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      v.srcObject = stream; v.style.display = 'block'; await v.play(); b.classList.add('on');
+      say(c.out, `formaty: ${formats.join(', ')}\nCeluj w kod…`);
+      while (stream) { const codes = await det.detect(v).catch(() => []); if (codes.length) say(c.out, codes.map(k => `[${k.format}] ${k.rawValue}`).join('\n')); await sleep(250); }
+    }); } });
+
+tile({ name: 'Gamepad + haptyka', icon: '🎮', api: 'navigator.getGamepads() · vibrationActuator', desc: 'Pady do gier (Xbox, PlayStation, Switch Pro): osie, przyciski i wibracja dual-rumble.',
+  ok: () => 'getGamepads' in navigator,
+  ui: c => {
+    const view = document.createElement('div'); c.parentElement.insertBefore(view, c.out);
+    say(c.out, 'Podłącz pad i naciśnij dowolny przycisk.');
+    const loop = () => {
+      const pads = [...navigator.getGamepads()].filter(Boolean);
+      if (pads.length) {
+        const p = pads[0];
+        view.innerHTML = `<div style="font:12px var(--mono);color:var(--dim)">${p.id.slice(0, 60)}</div>` +
+          p.axes.slice(0, 4).map(a => `<div class="axis"><i style="left:${(a + 1) * 50}%"></i></div>`).join('') +
+          `<div class="pad">${p.buttons.map((b, i) => `<span class="${b.pressed ? 'on' : ''}">${i}</span>`).join('')}</div>`;
+      }
+      requestAnimationFrame(loop);
+    };
+    loop();
+    btn(c, '〰️ Wibruj', async () => {
+      const p = [...navigator.getGamepads()].find(Boolean);
+      if (!p) throw new Error('Brak pada');
+      if (!p.vibrationActuator) throw new Error('Ten pad nie zgłasza wibracji');
+      await p.vibrationActuator.playEffect('dual-rumble', { duration: 600, strongMagnitude: 1, weakMagnitude: 0.6 });
+    });
+  } });
+
+tile({ name: 'Storage Manager', icon: '💽', api: 'navigator.storage.estimate()', desc: 'Ile miejsca może zająć ta strona, ile już zajmuje i czy dane są chronione przed automatycznym czyszczeniem.',
+  ok: () => 'storage' in navigator && 'estimate' in navigator.storage,
+  ui: c => {
+    btn(c, 'Sprawdź', async () => { const e = await navigator.storage.estimate(); say(c.out, `zajęte: ${(e.usage / 1048576).toFixed(2)} MB\nlimit: ${(e.quota / 1073741824).toFixed(1)} GB\ntrwałe: ${await navigator.storage.persisted?.()}`); });
+    btn(c, 'Poproś o trwałość', async () => say(c.out, `persist() → ${await navigator.storage.persist()}`));
+  } });
+
+tile({ name: 'Origin Private File System', icon: '🗂️', api: 'navigator.storage.getDirectory()', desc: 'Prywatny, szybki system plików strony, z którego korzystają np. SQLite i Photoshop w przeglądarce. Notatka zostaje po odświeżeniu.',
+  ok: () => 'storage' in navigator && 'getDirectory' in navigator.storage,
+  ui: c => {
+    const t = input(c, 'Notatka…');
+    btn(c, 'Zapisz', async () => { const dir = await navigator.storage.getDirectory(); const fh = await dir.getFileHandle('notatka.txt', { create: true }); const w = await fh.createWritable(); await w.write(t.value); await w.close(); say(c.out, `zapisano ${t.value.length} znaków do OPFS/notatka.txt`); });
+    btn(c, 'Wczytaj', async () => { const dir = await navigator.storage.getDirectory(); const fh = await dir.getFileHandle('notatka.txt'); const f = await fh.getFile(); t.value = await f.text(); say(c.out, `wczytano (${f.size} B, zmieniono ${new Date(f.lastModified).toLocaleString()})`); });
+  } });
+
+tile({ name: 'File System Access', icon: '📝', api: 'showOpenFilePicker() · createWritable()', desc: 'Otwórz plik tekstowy z dysku, edytuj go i zapisz z powrotem w tym samym miejscu, jak w natywnym edytorze.',
+  ok: () => 'showOpenFilePicker' in window,
+  ui: c => { let handle = null; const ta = document.createElement('textarea'); ta.rows = 4; ta.style.width = '100%'; c.parentElement.insertBefore(ta, c.out);
+    btn(c, 'Otwórz…', async () => { [handle] = await showOpenFilePicker({ types: [{ description: 'Tekst', accept: { 'text/*': ['.txt', '.md', '.ino', '.c', '.h', '.json', '.csv', '.js'] } }] }); const f = await handle.getFile(); ta.value = await f.text(); say(c.out, `${f.name} · ${f.size} B`); });
+    btn(c, 'Zapisz', async () => { if (!handle) throw new Error('Najpierw otwórz plik'); const w = await handle.createWritable(); await w.write(ta.value); await w.close(); say(c.out, `zapisano ${handle.name}`); });
+  } });
+
+tile({ name: 'Web Locks', icon: '🔒', api: "navigator.locks.request('x', fn)", desc: 'Muteks między kartami tej samej strony. Otwórz tę stronę w dwóch kartach i weź blokadę w obu.',
+  ok: () => 'locks' in navigator,
+  ui: c => {
+    btn(c, 'Weź blokadę na 5 s', async () => {
+      say(c.out, 'czekam na blokadę…');
+      await navigator.locks.request('weblab-demo', async () => { for (let i = 5; i > 0; i--) { say(c.out, `🔒 trzymam blokadę: ${i} s`); await sleep(1000); } });
+      say(c.out, '🔓 zwolniona');
+    });
+    btn(c, 'Kto trzyma?', async () => { const s = await navigator.locks.query(); say(c.out, `trzymane: ${s.held.length}, w kolejce: ${s.pending.length}`); });
+  } });
+
+tile({ name: 'Screen Capture', icon: '🖥️', api: 'getDisplayMedia()', desc: 'Przechwytywanie ekranu, okna albo karty, czyli to, czego używają Meet i Zoom.',
+  ok: () => !!navigator.mediaDevices?.getDisplayMedia,
+  ui: c => { const v = document.createElement('video'); v.className = 'mini'; v.muted = true; v.playsInline = true; c.parentElement.insertBefore(v, c.out); let s = null;
+    btn(c, 'Udostępnij ekran', async b => {
+      if (s) { s.getTracks().forEach(t => t.stop()); s = null; v.style.display = 'none'; return; }
+      s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      v.srcObject = s; v.style.display = 'block'; await v.play();
+      const st = s.getVideoTracks()[0].getSettings(); say(c.out, `${st.width}×${st.height} @ ${Math.round(st.frameRate || 0)} fps · ${st.displaySurface || ''}`);
+      s.getVideoTracks()[0].onended = () => { s = null; v.style.display = 'none'; };
+    }); } });
+
+tile({ name: 'Fullscreen + Orientation Lock', icon: '🔄', api: "screen.orientation.lock('landscape')", desc: 'Pełny ekran i blokada orientacji, przydatne w grach. Blokada działa tylko w trybie pełnoekranowym na telefonie.',
+  ok: () => 'requestFullscreen' in document.documentElement,
+  ui: c => btn(c, 'Pełny ekran + poziomo', async () => {
+    await document.documentElement.requestFullscreen();
+    try { await screen.orientation.lock('landscape'); say(c.out, 'zablokowano: landscape'); } catch (e) { say(c.out, 'pełny ekran ✓, blokada orientacji: ' + e.message); }
+  }) });
+
+tile({ name: 'Async Clipboard (obrazy)', icon: '📋', api: 'navigator.clipboard.write([ClipboardItem])', desc: 'Kopiuje do schowka nie tylko tekst, ale też wygenerowany obrazek PNG.',
+  ok: () => !!navigator.clipboard?.write && 'ClipboardItem' in window,
+  ui: c => {
+    btn(c, 'Kopiuj obrazek', async () => {
+      const cv = document.createElement('canvas'); cv.width = 320; cv.height = 160; const x = cv.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 320, 0); g.addColorStop(0, '#14b8a6'); g.addColorStop(1, '#d946ef'); x.fillStyle = g; x.fillRect(0, 0, 320, 160);
+      x.fillStyle = '#fff'; x.font = '700 30px system-ui'; x.fillText('Ze schowka! 📋', 24, 92);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Promise(r => cv.toBlob(r)) })]);
+      say(c.out, 'Skopiowano PNG – wklej w czacie albo w Paincie (Ctrl+V)');
+    });
+    btn(c, 'Czytaj schowek', async () => { const items = await navigator.clipboard.read(); say(c.out, items.map(i => i.types.join(', ')).join('\n')); });
+  } });
+
+tile({ name: 'Notifications', icon: '🔔', api: 'new Notification()', desc: 'Powiadomienia systemowe. Na telefonach wymagają Service Workera, na komputerze działają od razu.',
+  ok: () => 'Notification' in window,
+  ui: c => btn(c, 'Pokaż powiadomienie', async () => {
+    const p = await Notification.requestPermission();
+    if (p !== 'granted') throw new Error('Brak zgody: ' + p);
+    new Notification('Web Lab 🧪', { body: 'Powiadomienie prosto z przeglądarki', tag: 'weblab' });
+    say(c.out, 'wysłano');
+  }) });
+
+tile({ name: 'Geolocation', icon: '📍', api: 'navigator.geolocation.watchPosition()', desc: 'Pozycja GPS z dokładnością, wysokością, prędkością i kierunkiem.',
+  ok: () => 'geolocation' in navigator,
+  ui: c => btn(c, 'Gdzie jestem?', () => new Promise((res, rej) => navigator.geolocation.getCurrentPosition(p => {
+    const k = p.coords;
+    say(c.out, `${k.latitude.toFixed(5)}, ${k.longitude.toFixed(5)}\n± ${Math.round(k.accuracy)} m${k.altitude != null ? `\nwysokość: ${Math.round(k.altitude)} m` : ''}${k.speed != null ? `\nprędkość: ${(k.speed * 3.6).toFixed(1)} km/h` : ''}`);
+    res();
+  }, rej, { enableHighAccuracy: true, timeout: 15000 }))) });
+
+tile({ name: 'Web NFC', icon: '📶', api: 'new NDEFReader().scan()', desc: 'Czytanie i zapisywanie tagów NFC (NDEF). Chrome na Androidzie, z włączonym NFC.',
+  ok: () => 'NDEFReader' in window,
+  ui: c => {
+    btn(c, 'Skanuj tag', async () => {
+      const r = new NDEFReader(); await r.scan(); say(c.out, 'Przyłóż tag NFC do telefonu…');
+      r.onreading = ({ serialNumber, message }) => say(c.out, `S/N: ${serialNumber}\n` + message.records.map(rec => `[${rec.recordType}] ${rec.data ? new TextDecoder(rec.encoding || 'utf-8').decode(rec.data) : ''}`).join('\n'));
+    });
+    btn(c, 'Zapisz link do Lab', async () => { await new NDEFReader().write({ records: [{ recordType: 'url', data: location.href.replace(/apis\/?$/, '') }] }); say(c.out, 'Zapisano URL na tagu ✓'); });
+  } });
+
+tile({ name: 'Local Font Access', icon: '🔤', api: 'queryLocalFonts()', desc: 'Lista czcionek zainstalowanych w systemie, z podglądem. Przydaje się w edytorach graficznych w przeglądarce.',
+  ok: () => 'queryLocalFonts' in window,
+  ui: c => { const sel = document.createElement('select'); sel.hidden = true; const prev = document.createElement('div'); prev.style.cssText = 'font-size:26px;padding:6px 2px;'; c.parentElement.insertBefore(prev, c.out);
+    btn(c, 'Pokaż czcionki', async () => {
+      const fonts = await queryLocalFonts();
+      const fams = [...new Set(fonts.map(f => f.family))].sort();
+      sel.innerHTML = fams.map(f => `<option>${f.replace(/</g, '')}</option>`).join(''); sel.hidden = false;
+      sel.onchange = () => { prev.style.fontFamily = `"${sel.value}"`; prev.textContent = 'Zażółć gęślą jaźń 123'; };
+      sel.onchange();
+      say(c.out, `${fonts.length} krojów w ${fams.length} rodzinach`);
+    }); c.appendChild(sel); } });
+
+tile({ name: 'Window Management', icon: '🖥️', api: 'getScreenDetails()', desc: 'Informacje o wszystkich monitorach: pozycja, rozdzielczość, skalowanie, który jest główny.',
+  ok: () => 'getScreenDetails' in window,
+  ui: c => btn(c, 'Moje monitory', async () => {
+    const d = await getScreenDetails();
+    say(c.out, d.screens.map((s, i) => `#${i + 1} ${s.label || ''}\n   ${s.width}×${s.height} @${s.devicePixelRatio}x  pos (${s.left}, ${s.top})${s.isPrimary ? '  ★ główny' : ''}${s.isInternal ? '  wbudowany' : ''}`).join('\n'));
+  }) });
+
+tile({ name: 'Keyboard Map', icon: '⌨️', api: 'navigator.keyboard.getLayoutMap()', desc: 'Jaki znak daje fizyczny klawisz w twoim układzie klawiatury (np. QWERTZ albo AZERTY). Przydaje się w grach z WASD.',
+  ok: () => !!navigator.keyboard?.getLayoutMap,
+  ui: c => btn(c, 'Sprawdź układ', async () => {
+    const m = await navigator.keyboard.getLayoutMap();
+    say(c.out, ['KeyQ', 'KeyW', 'KeyE', 'KeyA', 'KeyS', 'KeyD', 'KeyZ', 'KeyY', 'Semicolon', 'BracketLeft'].map(k => `${k.padEnd(11)} → ${m.get(k)}`).join('\n') + `\n(${m.size} klawiszy)`);
+  }) });
+
+tile({ name: 'Generic Sensor API', icon: '🧭', api: 'new Gyroscope() · AbsoluteOrientationSensor', desc: 'Nowocześniejszy dostęp do czujników z wybraną częstotliwością próbkowania: żyroskop, akcelerometr, magnetometr, światło.',
+  ok: () => 'Accelerometer' in window || 'Gyroscope' in window,
+  ui: c => { const sel = document.createElement('select'); c.appendChild(sel);
+    const names = ['Accelerometer', 'LinearAccelerationSensor', 'GravitySensor', 'Gyroscope', 'Magnetometer', 'AbsoluteOrientationSensor', 'AmbientLightSensor'].filter(n => n in window);
+    sel.innerHTML = names.map(n => `<option>${n}</option>`).join('');
+    let s = null;
+    btn(c, 'Start / stop', b => {
+      if (s) { s.stop(); s = null; b.classList.remove('on'); return; }
+      s = new window[sel.value]({ frequency: 30 });
+      s.onreading = () => say(c.out, s.quaternion ? `q = [${s.quaternion.map(v => v.toFixed(3)).join(', ')}]` : s.illuminance != null ? `${s.illuminance.toFixed(0)} lx` : `x ${s.x.toFixed(3)}\ny ${s.y.toFixed(3)}\nz ${s.z.toFixed(3)}`);
+      s.onerror = e => fail(c.out, e.error);
+      s.start(); b.classList.add('on');
+    }); } });
+
+tile({ name: 'WebHID', icon: '🕹️', api: 'navigator.hid.requestDevice()', desc: 'Bezpośredni dostęp do urządzeń HID: Stream Decki, pady, nietypowe klawiatury i makropady. Pokazuje raporty wejściowe na żywo.',
+  ok: () => 'hid' in navigator,
+  ui: c => btn(c, 'Wybierz urządzenie HID', async () => {
+    const [d] = await navigator.hid.requestDevice({ filters: [] });
+    if (!d) return;
+    await d.open();
+    say(c.out, `${d.productName}\nVID:PID ${d.vendorId.toString(16)}:${d.productId.toString(16)}\nkolekcji: ${d.collections.length}`);
+    d.oninputreport = e => { const b = new Uint8Array(e.data.buffer); c.out.textContent = `${d.productName}\nraport #${e.reportId}: ${[...b].map(x => x.toString(16).padStart(2, '0')).join(' ')}`; };
+  }) });
+
+tile({ name: 'WebUSB', icon: '🔌', api: 'navigator.usb.requestDevice()', desc: 'Niskopoziomowa komunikacja z urządzeniami USB. Z tego korzystają webowe flashery firmware i programatory.',
+  ok: () => 'usb' in navigator,
+  ui: c => btn(c, 'Wybierz urządzenie USB', async () => {
+    const d = await navigator.usb.requestDevice({ filters: [] });
+    say(c.out, `${d.manufacturerName || ''} ${d.productName || ''}\nVID:PID ${d.vendorId.toString(16).padStart(4, '0')}:${d.productId.toString(16).padStart(4, '0')}\nklasa ${d.deviceClass}, USB ${d.usbVersionMajor}.${d.usbVersionMinor}\nkonfiguracji: ${d.configurations.length}`);
+  }) });
+
+tile({ name: 'Wbudowane AI: tłumacz', icon: '🌐', api: 'Translator.create() · LanguageDetector', desc: 'Tłumaczenie i wykrywanie języka przez model działający lokalnie w Chrome, bez serwera. Za pierwszym razem przeglądarka może pobrać model.',
+  ok: () => 'Translator' in self || 'LanguageDetector' in self,
+  ui: c => { const t = input(c, 'Tekst do przetłumaczenia', 'Przeglądarka potrafi dziś naprawdę dużo.'); const sel = document.createElement('select'); sel.innerHTML = '<option value="en">→ angielski</option><option value="de">→ niemiecki</option><option value="uk">→ ukraiński</option><option value="ja">→ japoński</option>'; c.appendChild(sel);
+    btn(c, 'Tłumacz', async () => {
+      let src = 'pl';
+      if ('LanguageDetector' in self) { const d = await LanguageDetector.create(); const [top] = await d.detect(t.value); if (top) src = top.detectedLanguage; say(c.out, `wykryto: ${src} (${(top.confidence * 100).toFixed(0)}%)…`); }
+      if (!('Translator' in self)) return;
+      const opts = { sourceLanguage: src, targetLanguage: sel.value };
+      const av = await Translator.availability(opts);
+      if (av === 'unavailable') throw new Error(`para ${src}→${sel.value} niedostępna`);
+      const tr = await Translator.create({ ...opts, monitor(m) { m.addEventListener('downloadprogress', e => say(c.out, `pobieranie modelu… ${Math.round(e.loaded * 100)}%`)); } });
+      say(c.out, `[${src}→${sel.value}] ` + await tr.translate(t.value));
+    }); } });
+
+tile({ name: 'Wbudowane AI: streszczanie', icon: '🧠', api: 'Summarizer.create()', desc: 'Lokalny model w Chrome streszcza tekst w kilku zdaniach albo jako lista punktów. Tu: opis tej strony.',
+  ok: () => 'Summarizer' in self,
+  ui: c => btn(c, 'Streść opisy kafelków', async () => {
+    if ((await Summarizer.availability()) === 'unavailable') throw new Error('Model niedostępny na tym urządzeniu');
+    const s = await Summarizer.create({ type: 'tldr', length: 'short', format: 'plain-text', outputLanguage: 'en', monitor(m) { m.addEventListener('downloadprogress', e => say(c.out, `pobieranie modelu… ${Math.round(e.loaded * 100)}%`)); } });
+    say(c.out, await s.summarize(TILES.map(t => t.name + ': ' + t.desc).join('\n')));
+  }) });
+
+tile({ name: 'Sprzęt i ekran', icon: '🧬', api: 'hardwareConcurrency · deviceMemory · GPUAdapter.info', desc: 'Co przeglądarka zdradza o urządzeniu: rdzenie, pamięć, GPU, gamut i HDR ekranu.',
+  ok: () => true,
+  ui: c => btn(c, 'Pokaż', async () => {
+    const L = [];
+    L.push(`rdzenie CPU: ${navigator.hardwareConcurrency ?? '?'}`);
+    if (navigator.deviceMemory) L.push(`RAM (zaokr.): ≥ ${navigator.deviceMemory} GB`);
+    if (navigator.gpu) { const a = await navigator.gpu.requestAdapter(); if (a?.info) L.push(`GPU: ${[a.info.vendor, a.info.architecture, a.info.description].filter(Boolean).join(' / ') || '(ukryte)'}`); }
+    if (navigator.userAgentData?.getHighEntropyValues) { const h = await navigator.userAgentData.getHighEntropyValues(['platform', 'platformVersion', 'architecture', 'model', 'bitness']); L.push(`system: ${h.platform} ${h.platformVersion} ${h.architecture}${h.bitness ? ' ' + h.bitness + '-bit' : ''}${h.model ? ' · ' + h.model : ''}`); }
+    L.push(`ekran: ${screen.width}×${screen.height} @${devicePixelRatio}x, ${screen.colorDepth}-bit`);
+    L.push(`gamut: ${matchMedia('(color-gamut: rec2020)').matches ? 'Rec.2020' : matchMedia('(color-gamut: p3)').matches ? 'Display P3' : 'sRGB'} · HDR: ${matchMedia('(dynamic-range: high)').matches ? 'tak' : 'nie'}`);
+    L.push(`wskaźnik: ${matchMedia('(pointer: coarse)').matches ? 'dotyk' : 'mysz'} · hover: ${matchMedia('(hover: hover)').matches}`);
+    L.push(`motyw: ${matchMedia('(prefers-color-scheme: dark)').matches ? 'ciemny' : 'jasny'} · mniej ruchu: ${matchMedia('(prefers-reduced-motion: reduce)').matches}`);
+    say(c.out, L.join('\n'));
+  }) });
+
+// ============ render ============
+const grid = document.getElementById('grid');
+let okN = 0;
+for (const t of TILES) {
+  let ok = false; try { ok = !!t.ok(); } catch {}
+  if (ok) okN++;
+  const el = document.createElement('article');
+  el.className = 't' + (ok ? '' : ' off');
+  el.dataset.ok = ok;
+  el.dataset.text = (t.name + ' ' + t.api + ' ' + t.desc).toLowerCase();
+  el.innerHTML = `<header><div><h3><span>${t.icon}</span><span class="nm"></span></h3><div class="api"></div></div><span class="sup ${ok ? 'ok' : 'no'}">${ok ? '✓ działa' : '✗ brak'}</span></header><p></p><div class="ctl"></div><div class="out"></div>`;
+  el.querySelector('.nm').textContent = t.name;
+  el.querySelector('.api').textContent = t.api;
+  el.querySelector('p').textContent = t.desc;
+  const c = el.querySelector('.ctl');
+  c.out = el.querySelector('.out');
+  grid.appendChild(el);
+  if (ok) { try { t.ui(c); } catch (e) { fail(c.out, e); } }
+  else c.out.textContent = 'To API nie jest dostępne w tej przeglądarce.';
+}
+const q = document.getElementById('q'), only = document.getElementById('onlyOk');
+function filter() {
+  const s = q.value.toLowerCase().trim(); let vis = 0;
+  grid.querySelectorAll('.t').forEach(el => { const show = (!s || el.dataset.text.includes(s)) && (!only.checked || el.dataset.ok === 'true'); el.classList.toggle('hide', !show); if (show) vis++; });
+  document.getElementById('count').textContent = `${okN}/${TILES.length} działa tutaj · widać ${vis}`;
+}
+q.oninput = filter; only.onchange = filter; filter();
+</script>
+</body>
+</html>

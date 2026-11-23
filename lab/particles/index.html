@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Milion cząstek — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>✨</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  .stats { font: 12px var(--mono); color: var(--dim); }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
+  .seg button { font: 600 12px inherit; font-family: inherit; color: var(--dim); background: none; border: 0; padding: 7px 10px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.on { background: rgba(139,123,255,.25); color: var(--text); }
+</style>
+</head>
+<body class="fullscreen">
+<canvas class="stage" id="c"></canvas>
+<a class="lab-back" href="../">← Lab</a>
+
+<aside class="lab-panel">
+  <header>
+    <div><h1>Milion cząstek</h1></div>
+    <button class="toggle" aria-label="Zwiń panel">–</button>
+  </header>
+  <p>Każda cząstka to dwa wektory w buforze GPU. Compute shader przelicza je wszystkie co klatkę; render rysuje punkty z mieszaniem addytywnym do bufora HDR (rgba16float) ze smugami i mapowaniem tonów.</p>
+  <div class="apis"><span class="chip">WebGPU compute</span><span class="chip">storage buffer</span><span class="chip">rgba16float</span><span class="chip">multi-touch</span></div>
+  <div class="row"><label>Tryb</label>
+    <div class="seg" id="mode"><button data-m="0" class="on">Przepływ</button><button data-m="1">Galaktyka</button><button data-m="2">Rój</button></div>
+  </div>
+  <div class="row"><label>Liczba</label>
+    <select id="count"><option value="250000">250 tys.</option><option value="500000">500 tys.</option><option value="1000000">1 mln</option><option value="2000000">2 mln</option><option value="4000000">4 mln</option></select>
+  </div>
+  <div class="row"><label>Smugi</label><input type="range" id="trail" min="0" max="100" value="70"><output></output></div>
+  <div class="row"><label>Jasność</label><input type="range" id="exposure" min="1" max="100" value="45"><output></output></div>
+  <div class="row"><label>Siła palca</label><input type="range" id="force" min="1" max="100" value="50"><output></output></div>
+  <div class="row">
+    <button class="btn" id="burst">💥 Wybuch</button>
+    <button class="btn" id="gyro">🧭 Grawitacja z żyroskopu</button>
+  </div>
+  <div class="stats" id="stats"></div>
+</aside>
+
+<script src="../common.js"></script>
+<script>
+(async () => {
+const canvas = document.getElementById('c');
+const g = await Lab.gpu(canvas, { device: {} });
+if (!g) return;
+const { device, context, format, adapter } = g;
+const coarse = matchMedia('(pointer: coarse)').matches;
+
+const computeWGSL = /* wgsl */`
+struct P { pos: vec2f, vel: vec2f };
+struct Sim {
+  res: vec2f, dt: f32, time: f32,
+  att: array<vec4f, 4>,
+  count: u32, mode: u32, grav: vec2f,
+  burst: f32, force: f32, pad: vec2f,
+};
+@group(0) @binding(0) var<storage, read_write> ps: array<P>;
+@group(0) @binding(1) var<uniform> sim: Sim;
+
+fn hash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+fn noise(p: vec2f) -> f32 {
+  let i = floor(p); let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2f(1, 0)), u.x), mix(hash(i + vec2f(0, 1)), hash(i + vec2f(1, 1)), u.x), u.y);
+}
+fn fbm(p: vec2f) -> f32 { return noise(p) * 0.65 + noise(p * 2.1 + 7.3) * 0.35; }
+// pole curl: bezźródłowy przepływ z gradientu szumu
+fn curl(p: vec2f) -> vec2f {
+  let e = 0.01;
+  let dx = fbm(p + vec2f(e, 0)) - fbm(p - vec2f(e, 0));
+  let dy = fbm(p + vec2f(0, e)) - fbm(p - vec2f(0, e));
+  return vec2f(dy, -dx) / (2.0 * e);
+}
+
+@compute @workgroup_size(256)
+fn update(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= sim.count) { return; }
+  var p = ps[i];
+  let aspect = sim.res.x / sim.res.y;
+  var acc = vec2f(0.0);
+  var damping = 1.2;
+
+  if (sim.mode == 0u) {
+    let t = sim.time * 0.05;
+    let flow = curl(p.pos * 1.3 + vec2f(t, -t * 0.7)) * 0.35;
+    acc += (flow - p.vel) * 2.5;
+  } else if (sim.mode == 1u) {
+    let d = -p.pos;
+    let r2 = dot(d, d) + 0.02;
+    acc += d * inverseSqrt(r2) / r2 * 0.05;
+    damping = 0.02;
+  } else {
+    damping = 0.6;
+  }
+
+  for (var k = 0u; k < 4u; k++) {
+    let a = sim.att[k];
+    if (a.w > 0.5) {
+      let d = a.xy - p.pos;
+      let r2 = dot(d, d) + 0.003;
+      acc += d / r2 * 0.09 * sim.force;
+      acc += vec2f(-d.y, d.x) / r2 * 0.03 * sim.force;
+    }
+  }
+  if (sim.burst > 0.0) {
+    let d = p.pos - sim.att[0].xy;
+    acc += normalize(d + vec2f(1e-4)) * sim.burst * (0.5 + hash(vec2f(f32(i), 3.1)));
+  }
+  acc += sim.grav * 1.2;
+
+  p.vel += acc * sim.dt;
+  p.vel *= exp(-sim.dt * damping);
+  p.pos += p.vel * sim.dt;
+
+  // tryb przepływu: zawijanie na krawędziach, pozostałe: odbicie
+  if (sim.mode == 0u) {
+    p.pos.x = (fract((p.pos.x + aspect) / (2.0 * aspect)) * 2.0 - 1.0) * aspect;
+    p.pos.y = fract((p.pos.y + 1.0) * 0.5) * 2.0 - 1.0;
+  }
+  if (p.pos.x < -aspect) { p.pos.x = -aspect; p.vel.x = abs(p.vel.x) * 0.5; }
+  if (p.pos.x >  aspect) { p.pos.x =  aspect; p.vel.x = -abs(p.vel.x) * 0.5; }
+  if (p.pos.y < -1.0) { p.pos.y = -1.0; p.vel.y = abs(p.vel.y) * 0.5; }
+  if (p.pos.y >  1.0) { p.pos.y =  1.0; p.vel.y = -abs(p.vel.y) * 0.5; }
+  ps[i] = p;
+}`;
+
+const renderWGSL = /* wgsl */`
+struct P { pos: vec2f, vel: vec2f };
+struct R { aspect: f32, intensity: f32, fade: f32, exposure: f32 };
+@group(0) @binding(0) var<storage, read> ps: array<P>;
+@group(0) @binding(1) var<uniform> r: R;
+struct VO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
+
+fn palette(s: f32) -> vec3f {
+  // wolne: fiolet -> średnie: błękit -> szybkie: róż
+  let c1 = vec3f(0.42, 0.25, 1.0); let c2 = vec3f(0.15, 0.75, 1.0); let c3 = vec3f(1.0, 0.42, 0.72);
+  return select(mix(c2, c3, (s - 0.5) * 2.0), mix(c1, c2, s * 2.0), s < 0.5);
+}
+@vertex fn vsPoints(@builtin(vertex_index) vi: u32) -> VO {
+  let p = ps[vi];
+  var o: VO;
+  o.pos = vec4f(p.pos.x / r.aspect, -p.pos.y, 0.0, 1.0);
+  let s = clamp(length(p.vel) * 1.4, 0.0, 1.0);
+  o.col = palette(s) * r.intensity * (0.5 + s * 1.5);
+  return o;
+}
+@fragment fn fsPoints(i: VO) -> @location(0) vec4f { return vec4f(i.col, 1.0); }
+
+@vertex fn vsFull(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fsFade() -> @location(0) vec4f { return vec4f(0.0, 0.0, 0.0, r.fade); }
+
+@group(0) @binding(2) var accum: texture_2d<f32>;
+@fragment fn fsTone(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let c = textureLoad(accum, vec2i(fc.xy), 0).rgb * r.exposure;
+  let m = 1.0 - exp(-c);
+  return vec4f(pow(m, vec3f(0.85)), 1.0);
+}`;
+
+const cMod = device.createShaderModule({ code: computeWGSL });
+const rMod = device.createShaderModule({ code: renderWGSL });
+const computePipe = device.createComputePipeline({ layout: 'auto', compute: { module: cMod, entryPoint: 'update' } });
+const HDR = 'rgba16float';
+const add = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
+const fadeBlend = { color: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
+
+const rLayout = device.createBindGroupLayout({ entries: [
+  { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+  { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+]});
+const tLayout = device.createBindGroupLayout({ entries: [
+  { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+  { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+]});
+const pointsPipe = device.createRenderPipeline({
+  layout: device.createPipelineLayout({ bindGroupLayouts: [rLayout] }),
+  vertex: { module: rMod, entryPoint: 'vsPoints' },
+  fragment: { module: rMod, entryPoint: 'fsPoints', targets: [{ format: HDR, blend: add }] },
+  primitive: { topology: 'point-list' },
+});
+const fadePipe = device.createRenderPipeline({
+  layout: device.createPipelineLayout({ bindGroupLayouts: [rLayout] }),
+  vertex: { module: rMod, entryPoint: 'vsFull' },
+  fragment: { module: rMod, entryPoint: 'fsFade', targets: [{ format: HDR, blend: fadeBlend }] },
+});
+const tonePipe = device.createRenderPipeline({
+  layout: device.createPipelineLayout({ bindGroupLayouts: [tLayout] }),
+  vertex: { module: rMod, entryPoint: 'vsFull' },
+  fragment: { module: rMod, entryPoint: 'fsTone', targets: [{ format }] },
+});
+
+const simBuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const rBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const simAB = new ArrayBuffer(128), simF = new Float32Array(simAB), simU = new Uint32Array(simAB);
+
+// ---------------- stan ----------------
+const $ = id => document.getElementById(id);
+const maxBuf = Math.min(device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize);
+const countSel = $('count');
+[...countSel.options].forEach(o => { if (+o.value * 16 > maxBuf) o.disabled = true; });
+countSel.value = coarse ? '500000' : '1000000'; if (location.hash === '#test') countSel.value = '250000';
+let count = 0, mode = 0, pBuf = null, computeBG = null, renderBG = null;
+let accum = null, toneBG = null;
+
+function initParticles() {
+  count = +countSel.value;
+  const aspect = canvas.clientWidth / canvas.clientHeight;
+  const data = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    let x, y, vx = 0, vy = 0;
+    if (mode === 1) {
+      // dysk galaktyki z prędkością orbitalną
+      const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+      const bulge = Math.random() < 0.18;
+      const r = bulge ? 0.03 + Math.abs(gauss()) * 0.18 : 0.1 + Math.pow(Math.random(), 0.8) * 0.85;
+      const a = bulge ? Math.random() * Math.PI * 2 : (i % 3) * Math.PI * 2 / 3 + r * 4.2 + gauss() * (0.45 - r * 0.2);
+      x = Math.cos(a) * r; y = Math.sin(a) * r;
+      const r2 = r * r + 0.02, v = Math.sqrt(0.05 * r * r / Math.pow(r2, 1.5));
+      vx = -Math.sin(a) * v; vy = Math.cos(a) * v;
+    } else {
+      x = (Math.random() * 2 - 1) * aspect; y = Math.random() * 2 - 1;
+    }
+    data.set([x, y, vx, vy], i * 4);
+  }
+  pBuf?.destroy();
+  pBuf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(pBuf, 0, data);
+  computeBG = device.createBindGroup({ layout: computePipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: pBuf } }, { binding: 1, resource: { buffer: simBuf } }] });
+  renderBG = device.createBindGroup({ layout: rLayout, entries: [{ binding: 0, resource: { buffer: pBuf } }, { binding: 1, resource: { buffer: rBuf } }] });
+}
+function initAccum(w, h) {
+  accum?.destroy();
+  accum = device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+  toneBG = device.createBindGroup({ layout: tLayout, entries: [{ binding: 1, resource: { buffer: rBuf } }, { binding: 2, resource: accum.createView() }] });
+}
+countSel.onchange = initParticles;
+$('mode').querySelectorAll('button').forEach(b => b.onclick = () => {
+  $('mode').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  mode = +b.dataset.m; initParticles();
+});
+const params = {};
+for (const id of ['trail', 'exposure', 'force']) {
+  const el = $(id), out = el.nextElementSibling;
+  const upd = () => { params[id] = +el.value; out.textContent = el.value; };
+  el.addEventListener('input', upd); upd();
+}
+
+// palce / kursor jako atraktory
+const pointers = new Map();
+let mouse = null;
+const toSim = (x, y) => { const a = canvas.clientWidth / canvas.clientHeight; return [(x / canvas.clientWidth * 2 - 1) * a, y / canvas.clientHeight * 2 - 1]; };
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, toSim(e.clientX, e.clientY)); });
+canvas.addEventListener('pointermove', e => { const s = toSim(e.clientX, e.clientY); mouse = s; if (pointers.has(e.pointerId)) pointers.set(e.pointerId, s); });
+const up = e => pointers.delete(e.pointerId);
+canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+
+let burst = 0;
+const doBurst = () => { burst = 6; };
+$('burst').onclick = doBurst;
+canvas.addEventListener('dblclick', doBurst);
+
+let grav = { x: 0, y: 0 }, useGyro = false;
+$('gyro').onclick = async e => {
+  if (!useGyro && Lab.needsMotionPermission()) { if (!(await Lab.requestMotionPermission())) return Lab.toast('Brak zgody na czujniki'); }
+  useGyro = !useGyro; e.currentTarget.classList.toggle('on', useGyro);
+  if (!useGyro) grav = { x: 0, y: 0 }; else Lab.toast('Przechyl telefon');
+};
+Lab.onTilt(gv => { if (useGyro) grav = gv; }, () => { if (useGyro) doBurst(); });
+
+// ---------------- pętla ----------------
+let last = performance.now(), frames = 0, fpsT = last, fps = 0;
+initParticles();
+function frame(now) {
+  const dt = Math.min(1 / 30, (now - last) / 1000); last = now;
+  const { w: W, h: H, changed } = Lab.fitCanvas(canvas, 1.5, 3e6);
+  if (changed || !accum) initAccum(W, H);
+
+  simF[0] = W; simF[1] = H; simF[2] = dt; simF[3] = now / 1000;
+  const list = [...pointers.values()];
+  if (burst > 0 && !list.length) list.unshift([0, 0]);
+  for (let k = 0; k < 4; k++) {
+    const p = list[k];
+    simF[4 + k * 4] = p ? p[0] : 0; simF[5 + k * 4] = p ? p[1] : 0; simF[6 + k * 4] = 1; simF[7 + k * 4] = p && !(burst > 0 && k === 0 && !pointers.size) ? 1 : 0;
+  }
+  simU[20] = count; simU[21] = mode; simF[22] = grav.x; simF[23] = grav.y;
+  simF[24] = burst; simF[25] = params.force / 50;
+  burst = Math.max(0, burst - dt * 30);
+  device.queue.writeBuffer(simBuf, 0, simAB);
+
+  const area = W * H;
+  const intensity = Math.min(1.5, 0.35 * area / count);
+  device.queue.writeBuffer(rBuf, 0, new Float32Array([W / H, intensity, 1 - params.trail / 105, params.exposure / 45 * 0.9]));
+
+  const enc = device.createCommandEncoder();
+  const cp = enc.beginComputePass();
+  cp.setPipeline(computePipe); cp.setBindGroup(0, computeBG);
+  cp.dispatchWorkgroups(Math.ceil(count / 256));
+  cp.end();
+
+  const rp = enc.beginRenderPass({ colorAttachments: [{ view: accum.createView(), loadOp: 'load', storeOp: 'store' }] });
+  rp.setBindGroup(0, renderBG);
+  rp.setPipeline(fadePipe); rp.draw(3);
+  rp.setPipeline(pointsPipe); rp.draw(count);
+  rp.end();
+
+  const tp = enc.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+  tp.setPipeline(tonePipe); tp.setBindGroup(0, toneBG); tp.draw(3); tp.end();
+  device.queue.submit([enc.finish()]);
+
+  frames++;
+  if (now - fpsT > 500) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; $('stats').textContent = `${(count / 1e6).toFixed(2)} mln cząstek · ${fps} FPS · ${W}×${H}`; }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

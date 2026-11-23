@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Splątane okna — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🪟</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  body { background: #05050a; }
+  .map { position: relative; height: 110px; margin: 10px 0 4px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px solid var(--border); overflow: hidden; }
+  .map div { position: absolute; border-radius: 3px; }
+  .map .scr { border: 1px dashed rgba(255,255,255,.25); }
+  .map .win { border: 1.5px solid; background: rgba(255,255,255,.06); }
+  .map .win.me { background: rgba(255,255,255,.18); }
+  .count { font: 600 13px var(--mono); }
+  body.small .lab-panel { display: none; }
+  body.small .mini { display: flex; }
+  .mini { display: none; position: fixed; right: 10px; bottom: 10px; z-index: 50; gap: 6px; }
+</style>
+</head>
+<body class="fullscreen">
+<canvas class="stage" id="c"></canvas>
+<a class="lab-back" href="../">← Lab</a>
+
+<aside class="lab-panel">
+  <header>
+    <div><h1>Splątane okna</h1></div>
+    <button class="toggle" aria-label="Zwiń panel">–</button>
+  </header>
+  <p>Każde okno co klatkę wysyła przez <code>BroadcastChannel</code> swoją pozycję na ekranie (<code>screenX/screenY</code>). Wszystkie rysują wszystkie kule we wspólnym układzie współrzędnych ekranu, więc strumienie płynnie przechodzą między oknami. Przesuń okno i patrz.</p>
+  <div class="apis"><span class="chip">BroadcastChannel</span><span class="chip">window.screenX</span><span class="chip">window.open</span><span class="chip">getScreenDetails</span></div>
+  <div class="row"><span class="count" id="count">1 okno</span></div>
+  <div class="row">
+    <button class="btn primary" id="open">＋ Otwórz kolejne okno</button>
+    <button class="btn" id="screens">🖥️ Moje ekrany</button>
+  </div>
+  <div class="map" id="map" title="Mapa okien na ekranie"></div>
+  <p style="font-size:11.5px;color:var(--dimmer);margin-top:8px">Działa na komputerze. Na telefonie okna się nakładają, więc efekt nie wyjdzie, ale synchronizacja kart dalej działa.</p>
+</aside>
+<div class="mini"><button class="btn" id="open2">＋ okno</button></div>
+
+<script src="../common.js"></script>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const id = Math.random().toString(36).slice(2, 9);
+const hue = Math.floor(Math.random() * 360);
+const chan = new BroadcastChannel('lab-multi-window');
+const peers = new Map(); // id -> {hue, x, y, sx, sy, w, h, t}
+let screensInfo = null;
+
+// pozycja zawartości okna na ekranie (przybliżona – ramki i paski narzędzi)
+function contentOrigin() {
+  const bx = Math.max(0, (outerWidth - innerWidth) / 2);
+  const by = Math.max(0, outerHeight - innerHeight - bx);
+  return { x: screenX + bx, y: screenY + by };
+}
+function me() {
+  const o = contentOrigin();
+  return { id, hue, x: o.x + innerWidth / 2, y: o.y + innerHeight / 2, ox: o.x, oy: o.y, w: innerWidth, h: innerHeight, t: Date.now() };
+}
+
+chan.onmessage = ({ data }) => {
+  if (data.type === 'state') {
+    const p = peers.get(data.id);
+    if (p) Object.assign(p, data, { sx: p.sx, sy: p.sy });
+    else peers.set(data.id, { ...data, sx: data.x, sy: data.y });
+  } else if (data.type === 'bye') peers.delete(data.id);
+  else if (data.type === 'hello') chan.postMessage({ type: 'state', ...me() });
+};
+chan.postMessage({ type: 'hello', id });
+addEventListener('pagehide', () => chan.postMessage({ type: 'bye', id }));
+
+function openWindow() {
+  const w = 460, h = 460;
+  const n = peers.size + 1;
+  const left = screenX + (n % 3) * (w + 30) + 40, top = screenY + Math.floor(n / 3) * 120 + 60;
+  const win = window.open(location.href, 'mw-' + Math.random().toString(36).slice(2, 6), `popup,width=${w},height=${h},left=${left},top=${top}`);
+  if (!win) Lab.toast('Przeglądarka zablokowała okno – pozwól na wyskakujące okienka');
+}
+$('open').onclick = openWindow;
+$('open2').onclick = openWindow;
+
+$('screens').onclick = async () => {
+  if (!('getScreenDetails' in window)) return Lab.toast('Window Management API niedostępne (Chrome/Edge na komputerze)');
+  try {
+    screensInfo = await window.getScreenDetails();
+    Lab.toast(`Ekrany: ${screensInfo.screens.length} – ${screensInfo.screens.map(s => s.label || (s.width + '×' + s.height)).join(', ')}`, 4000);
+    screensInfo.addEventListener('screenschange', drawMap);
+  } catch { Lab.toast('Brak zgody na dostęp do ekranów'); }
+};
+
+function drawMap() {
+  const map = $('map');
+  const all = [me(), ...peers.values()];
+  const screens = screensInfo ? screensInfo.screens.map(s => ({ x: s.left, y: s.top, w: s.width, h: s.height }))
+    : [{ x: screen.availLeft || 0, y: screen.availTop || 0, w: screen.width, h: screen.height }];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const r of [...screens, ...all.map(a => ({ x: a.ox, y: a.oy, w: a.w, h: a.h }))]) {
+    minX = Math.min(minX, r.x); minY = Math.min(minY, r.y); maxX = Math.max(maxX, r.x + r.w); maxY = Math.max(maxY, r.y + r.h);
+  }
+  const mw = map.clientWidth - 12, mh = map.clientHeight - 12, s = Math.min(mw / (maxX - minX), mh / (maxY - minY));
+  const ox = 6 + (mw - (maxX - minX) * s) / 2, oy = 6 + (mh - (maxY - minY) * s) / 2;
+  const box = (r, cls, col) => `<div class="${cls}" style="left:${ox + (r.x - minX) * s}px;top:${oy + (r.y - minY) * s}px;width:${r.w * s}px;height:${r.h * s}px;${col ? 'border-color:' + col : ''}"></div>`;
+  map.innerHTML = screens.map(r => box(r, 'scr')).join('') +
+    all.map(a => box({ x: a.ox, y: a.oy, w: a.w, h: a.h }, 'win' + (a.id === id ? ' me' : ''), `hsl(${a.hue} 90% 65%)`)).join('');
+}
+
+// ---------------- rysowanie ----------------
+const N = 260;
+const sphere = Array.from({ length: N }, (_, i) => {
+  const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), th = i * 2.39996;
+  return [Math.cos(th) * r, y, Math.sin(th) * r];
+});
+let dpr = 1;
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+  document.body.classList.toggle('small', innerWidth < 560 && !!window.opener);
+}
+addEventListener('resize', resize);
+resize();
+
+function drawOrb(x, y, h, t, R) {
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, R * 2.4);
+  glow.addColorStop(0, `hsla(${h},90%,60%,.35)`);
+  glow.addColorStop(1, `hsla(${h},90%,50%,0)`);
+  ctx.fillStyle = glow;
+  ctx.fillRect(x - R * 2.4, y - R * 2.4, R * 4.8, R * 4.8);
+  const ca = Math.cos(t * 0.6), sa = Math.sin(t * 0.6), cb = Math.cos(t * 0.37), sb = Math.sin(t * 0.37);
+  for (const [px, py, pz] of sphere) {
+    let x1 = px * ca - pz * sa, z1 = px * sa + pz * ca;
+    let y1 = py * cb - z1 * sb, z2 = py * sb + z1 * cb;
+    const wob = 1 + 0.06 * Math.sin(t * 2 + py * 6);
+    const s = (z2 + 2) / 3;
+    ctx.fillStyle = `hsla(${h + z2 * 30},95%,${55 + z2 * 25}%,${0.25 + s * 0.6})`;
+    const r = 1.2 + s * 1.8;
+    ctx.fillRect(x + x1 * R * wob - r / 2, y + y1 * R * wob - r / 2, r, r);
+  }
+}
+function drawLink(a, b, t) {
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+  const nx = -dy / d, ny = dx / d;
+  for (let k = 0; k < 3; k++) {
+    const bend = Math.sin(t * 0.8 + k * 2.1) * d * 0.18;
+    const cx = (a.x + b.x) / 2 + nx * bend, cy = (a.y + b.y) / 2 + ny * bend;
+    const M = Math.min(140, Math.max(30, d / 6));
+    for (let i = 0; i < M; i++) {
+      const u = ((i / M) + t * 0.15 * (k % 2 ? -1 : 1) + 10) % 1;
+      const iu = 1 - u;
+      const x = iu * iu * a.x + 2 * iu * u * cx + u * u * b.x;
+      const y = iu * iu * a.y + 2 * iu * u * cy + u * u * b.y;
+      const h = a.hue + (b.hue - a.hue) * u;
+      const s = Math.sin(u * Math.PI);
+      ctx.fillStyle = `hsla(${h},95%,65%,${0.15 + s * 0.6})`;
+      const r = 1 + s * 2.2;
+      ctx.fillRect(x - r / 2, y - r / 2, r, r);
+    }
+  }
+}
+
+let lastSend = 0, lastMap = 0;
+function loop(now) {
+  const self = me();
+  if (now - lastSend > 16) { chan.postMessage({ type: 'state', ...self }); lastSend = now; }
+  const cutoff = Date.now() - 1500;
+  for (const [k, p] of peers) {
+    if (p.t < cutoff) { peers.delete(k); continue; }
+    p.sx += (p.x - p.sx) * 0.35; p.sy += (p.y - p.sy) * 0.35;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(5,5,10,0.35)';
+  ctx.fillRect(0, 0, innerWidth, innerHeight);
+  ctx.globalCompositeOperation = 'lighter';
+  // wszystko liczone w układzie ekranu, przesunięte o początek tego okna
+  const o = { x: self.ox, y: self.oy };
+  const t = now / 1000;
+  const orbs = [{ x: self.x - o.x, y: self.y - o.y, hue }, ...[...peers.values()].map(p => ({ x: p.sx - o.x, y: p.sy - o.y, hue: p.hue }))];
+  for (let i = 0; i < orbs.length; i++) for (let j = i + 1; j < orbs.length; j++) drawLink(orbs[i], orbs[j], t);
+  const R = Math.min(innerWidth, innerHeight) * 0.16 + 30;
+  for (const ob of orbs) drawOrb(ob.x, ob.y, ob.hue, t, Math.min(R, 120));
+  if (now - lastMap > 250) {
+    lastMap = now;
+    const n = peers.size + 1;
+    $('count').textContent = `${n} ${n === 1 ? 'okno' : n < 5 ? 'okna' : 'okien'} połączonych`;
+    drawMap();
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

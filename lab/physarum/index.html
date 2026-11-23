@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Physarum — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🦠</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  canvas.stage { cursor: crosshair; }
+  .stats { font: 12px var(--mono); color: var(--dim); }
+  .swatches { display: flex; gap: 6px; }
+  .swatches button { width: 26px; height: 26px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; }
+  .swatches button.on { border-color: #fff; }
+</style>
+</head>
+<body class="fullscreen">
+<canvas class="stage" id="c"></canvas>
+<a class="lab-back" href="../">← Lab</a>
+
+<aside class="lab-panel">
+  <header>
+    <div><h1>Physarum</h1></div>
+    <button class="toggle" aria-label="Zwiń panel">–</button>
+  </header>
+  <p>Model śluzowca Physarum polycephalum (Jones, 2010). Każdy agent ma trzy „czułki”: skręca tam, gdzie ślad jest najsilniejszy, i zostawia własny. Depozyty idą przez <code>atomicAdd</code>, a dyfuzja i zanikanie śladu to osobny compute pass.</p>
+  <div class="apis"><span class="chip">WebGPU compute</span><span class="chip">atomic&lt;u32&gt;</span><span class="chip">ping-pong</span></div>
+  <div class="row"><label>Gatunek</label>
+    <select id="preset">
+      <option value="0">Sieć naczyń</option>
+      <option value="1">Komórki</option>
+      <option value="2">Wiry</option>
+      <option value="3">Pajęczyna</option>
+      <option value="4">Koralowiec</option>
+    </select>
+  </div>
+  <div class="row"><label>Kąt czułek</label><input type="range" id="sa" min="5" max="90" value="22"><output></output></div>
+  <div class="row"><label>Zasięg czułek</label><input type="range" id="sd" min="2" max="60" value="9"><output></output></div>
+  <div class="row"><label>Skręt</label><input type="range" id="ra" min="2" max="90" value="45"><output></output></div>
+  <div class="row"><label>Zanikanie</label><input type="range" id="decay" min="5" max="60" value="25"><output></output></div>
+  <div class="row"><label>Kolory</label><div class="swatches" id="pal"></div></div>
+  <div class="row">
+    <button class="btn on" id="draw">✍️ Rysuj pokarm</button>
+    <button class="btn" id="erase">🧽 Odpychaj</button>
+    <button class="btn" id="reset">↺ Nowa kolonia</button>
+  </div>
+  <div class="stats" id="stats"></div>
+</aside>
+
+<script src="../common.js"></script>
+<script>
+(async () => {
+const canvas = document.getElementById('c');
+const g = await Lab.gpu(canvas);
+if (!g) return;
+const { device, context, format } = g;
+const coarse = matchMedia('(pointer: coarse)').matches;
+
+const common = /* wgsl */`
+struct Sim {
+  size: vec2u, count: u32, frame: u32,
+  sa: f32, sd: f32, ra: f32, speed: f32,
+  decay: f32, diffuse: f32, deposit: f32, brush: f32,
+  mouse: vec2f, mouseOn: f32, mouseMode: f32,
+};
+@group(0) @binding(0) var<uniform> sim: Sim;
+fn hash(n: u32) -> u32 {
+  var x = n; x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return x;
+}
+fn rnd(n: u32) -> f32 { return f32(hash(n)) / 4294967295.0; }
+fn idx(p: vec2i) -> u32 {
+  let s = vec2i(sim.size);
+  let q = (p % s + s) % s;
+  return u32(q.y) * sim.size.x + u32(q.x);
+}`;
+
+const agentsWGSL = common + /* wgsl */`
+@group(0) @binding(1) var<storage, read_write> agents: array<vec4f>;
+@group(0) @binding(2) var<storage, read> trail: array<f32>;
+@group(0) @binding(3) var<storage, read_write> deposit: array<atomic<u32>>;
+
+fn sense(p: vec2f, a: f32) -> f32 {
+  let q = p + vec2f(cos(a), sin(a)) * sim.sd;
+  return trail[idx(vec2i(floor(q)))];
+}
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= sim.count) { return; }
+  var ag = agents[i];
+  var pos = ag.xy;
+  var ang = ag.z;
+  let r = rnd(i * 1664525u + sim.frame * 1013904223u);
+
+  let f = sense(pos, ang);
+  let fl = sense(pos, ang + sim.sa);
+  let fr = sense(pos, ang - sim.sa);
+  if (f > fl && f > fr) {
+  } else if (f < fl && f < fr) {
+    ang += (r - 0.5) * 2.0 * sim.ra;
+  } else if (fl > fr) {
+    ang += sim.ra * (0.5 + r * 0.5);
+  } else if (fr > fl) {
+    ang -= sim.ra * (0.5 + r * 0.5);
+  }
+
+  // kursor: przyciąga (tryb 0) albo odpycha (tryb 1)
+  if (sim.mouseOn > 0.5 && sim.mouseMode > 0.5) {
+    let d = pos - sim.mouse;
+    let l = length(d);
+    if (l < sim.brush * 2.5) { ang = atan2(d.y, d.x) + (r - 0.5) * 0.5; }
+  }
+
+  pos += vec2f(cos(ang), sin(ang)) * sim.speed;
+  let s = vec2f(sim.size);
+  pos = (pos % s + s) % s;
+  agents[i] = vec4f(pos, ang, ag.w);
+  atomicAdd(&deposit[idx(vec2i(floor(pos)))], 1u);
+}`;
+
+const diffuseWGSL = common + /* wgsl */`
+@group(0) @binding(1) var<storage, read> src: array<f32>;
+@group(0) @binding(2) var<storage, read_write> dst: array<f32>;
+@group(0) @binding(3) var<storage, read_write> deposit: array<u32>;
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= sim.size.x || id.y >= sim.size.y) { return; }
+  let p = vec2i(id.xy);
+  var sum = 0.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) { sum += src[idx(p + vec2i(x, y))]; }
+  }
+  let i = idx(p);
+  let orig = src[i];
+  var v = mix(orig, sum / 9.0, sim.diffuse);
+  v = v * (1.0 - sim.decay) + f32(deposit[i]) * sim.deposit;
+  deposit[i] = 0u;
+  // rysowanie pokarmu palcem
+  if (sim.mouseOn > 0.5 && sim.mouseMode < 0.5) {
+    let d = length(vec2f(p) + 0.5 - sim.mouse);
+    if (d < sim.brush) { v += 3.0 * (1.0 - d / sim.brush); }
+  }
+  dst[i] = min(v, 60.0);
+}`;
+
+const renderWGSL = common + /* wgsl */`
+struct Pal { a: vec4f, b: vec4f, c: vec4f, d: vec4f };
+@group(0) @binding(1) var<storage, read> trail: array<f32>;
+@group(0) @binding(2) var<uniform> pal: Pal;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  var o: VO; o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0); o.uv = vec2f(p.x, 1.0 - p.y); return o;
+}
+fn at(p: vec2i) -> f32 { return trail[idx(p)]; }
+@fragment fn fs(i: VO) -> @location(0) vec4f {
+  // interpolacja dwuliniowa ręcznie (bufor, nie tekstura)
+  let q = i.uv * vec2f(sim.size) - 0.5;
+  let b = vec2i(floor(q)); let f = fract(q);
+  let v = mix(mix(at(b), at(b + vec2i(1, 0)), f.x), mix(at(b + vec2i(0, 1)), at(b + vec2i(1, 1)), f.x), f.y);
+  let t = 1.0 - exp(-v * 0.3);
+  var col = mix(pal.a.rgb, pal.b.rgb, smoothstep(0.0, 0.35, t));
+  col = mix(col, pal.c.rgb, smoothstep(0.3, 0.75, t));
+  col = mix(col, pal.d.rgb, smoothstep(0.7, 1.0, t));
+  return vec4f(col, 1.0);
+}`;
+
+const mk = code => device.createShaderModule({ code });
+const agentPipe = device.createComputePipeline({ layout: 'auto', compute: { module: mk(agentsWGSL), entryPoint: 'main' } });
+const diffPipe = device.createComputePipeline({ layout: 'auto', compute: { module: mk(diffuseWGSL), entryPoint: 'main' } });
+const rMod = mk(renderWGSL);
+const renderPipe = device.createRenderPipeline({ layout: 'auto', vertex: { module: rMod, entryPoint: 'vs' }, fragment: { module: rMod, entryPoint: 'fs', targets: [{ format }] } });
+
+const simBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const palBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const simAB = new ArrayBuffer(64), simF = new Float32Array(simAB), simU = new Uint32Array(simAB);
+
+// ---------------- presety ----------------
+// [kąt czułek°, zasięg, skręt°, zanikanie, prędkość]
+const PRESETS = [
+  [22, 9, 45, 25, 1.0],
+  [30, 20, 20, 30, 1.2],
+  [60, 12, 15, 20, 1.4],
+  [12, 30, 8, 35, 1.6],
+  [80, 5, 70, 40, 0.9],
+];
+const PALETTES = [
+  ['#05010a', '#5b1a8a', '#f2546d', '#fff1c7'],
+  ['#020a0a', '#0b4f4a', '#2ee6a8', '#f2fff9'],
+  ['#020208', '#1b2b8f', '#3bc8ff', '#ffffff'],
+  ['#0a0502', '#7a2b06', '#ffa53b', '#fff8e0'],
+  ['#000000', '#3a3a3a', '#bdbdbd', '#ffffff'],
+];
+const $ = id => document.getElementById(id);
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+let palIdx = 0;
+function setPalette(i) {
+  palIdx = i;
+  const d = new Float32Array(16);
+  PALETTES[i].forEach((h, k) => d.set([...hex(h), 1], k * 4));
+  device.queue.writeBuffer(palBuf, 0, d);
+  $('pal').querySelectorAll('button').forEach((b, k) => b.classList.toggle('on', k === i));
+}
+PALETTES.forEach((p, i) => {
+  const b = document.createElement('button');
+  b.style.background = `linear-gradient(135deg, ${p[1]}, ${p[2]}, ${p[3]})`;
+  b.onclick = () => setPalette(i);
+  $('pal').appendChild(b);
+});
+
+const sliders = ['sa', 'sd', 'ra', 'decay'];
+const params = { speed: 1 };
+sliders.forEach(id => {
+  const el = $(id), out = el.nextElementSibling;
+  const upd = () => { params[id] = +el.value; out.textContent = el.value; };
+  el.addEventListener('input', upd); upd();
+});
+function applyPreset(i) {
+  const p = PRESETS[i];
+  sliders.forEach((id, k) => { $(id).value = p[k]; $(id).dispatchEvent(new Event('input')); });
+  params.speed = p[4];
+}
+$('preset').onchange = e => { applyPreset(+e.target.value); setPalette(+e.target.value % PALETTES.length); };
+
+// ---------------- bufory ----------------
+let W = 0, H = 0, count = 0, trails = [], depBuf, agentBuf, agentBGs, diffBGs, renderBGs, cur = 0;
+function build() {
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const budget = location.hash === '#test' ? 0.12e6 : coarse ? 0.55e6 : 1.1e6;
+  const scale = Math.min(1, Math.sqrt(budget / (cw * ch)));
+  W = Math.max(64, Math.round(cw * scale)); H = Math.max(64, Math.round(ch * scale));
+  canvas.width = W; canvas.height = H; // render w rozdzielczości symulacji, skalowany przez CSS
+  count = Math.round(W * H * (coarse ? 0.35 : 0.5));
+  trails.forEach(t => t.destroy()); depBuf?.destroy(); agentBuf?.destroy();
+  const n = W * H;
+  trails = [0, 1].map(() => device.createBuffer({ size: n * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }));
+  depBuf = device.createBuffer({ size: n * 4, usage: GPUBufferUsage.STORAGE });
+  agentBuf = device.createBuffer({ size: count * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  seed();
+  const u = { binding: 0, resource: { buffer: simBuf } };
+  agentBGs = [0, 1].map(k => device.createBindGroup({ layout: agentPipe.getBindGroupLayout(0), entries: [u,
+    { binding: 1, resource: { buffer: agentBuf } }, { binding: 2, resource: { buffer: trails[k] } }, { binding: 3, resource: { buffer: depBuf } }] }));
+  diffBGs = [0, 1].map(k => device.createBindGroup({ layout: diffPipe.getBindGroupLayout(0), entries: [u,
+    { binding: 1, resource: { buffer: trails[k] } }, { binding: 2, resource: { buffer: trails[1 - k] } }, { binding: 3, resource: { buffer: depBuf } }] }));
+  renderBGs = [0, 1].map(k => device.createBindGroup({ layout: renderPipe.getBindGroupLayout(0), entries: [u,
+    { binding: 1, resource: { buffer: trails[k] } }, { binding: 2, resource: { buffer: palBuf } }] }));
+}
+function seed() {
+  const d = new Float32Array(count * 4);
+  const shape = Math.floor(Math.random() * 3);
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.38;
+  for (let i = 0; i < count; i++) {
+    let x, y, a;
+    if (shape === 0) { // dysk skierowany do środka
+      const r = Math.sqrt(Math.random()) * R, t = Math.random() * Math.PI * 2;
+      x = cx + Math.cos(t) * r; y = cy + Math.sin(t) * r; a = t + Math.PI;
+    } else if (shape === 1) { // okrąg skierowany na zewnątrz
+      const t = Math.random() * Math.PI * 2, r = R * (0.9 + Math.random() * 0.1);
+      x = cx + Math.cos(t) * r; y = cy + Math.sin(t) * r; a = t + Math.PI;
+    } else { // losowo po całym ekranie
+      x = Math.random() * W; y = Math.random() * H; a = Math.random() * Math.PI * 2;
+    }
+    d.set([x, y, a, 0], i * 4);
+  }
+  device.queue.writeBuffer(agentBuf, 0, d);
+  const z = new Float32Array(W * H);
+  trails.forEach(t => device.queue.writeBuffer(t, 0, z));
+}
+$('reset').onclick = seed;
+
+// ---------------- wskaźnik ----------------
+let mouse = null, mouseMode = 0;
+const toSim = e => [e.clientX / canvas.clientWidth * W, e.clientY / canvas.clientHeight * H];
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); mouse = toSim(e); });
+canvas.addEventListener('pointermove', e => { if (mouse) mouse = toSim(e); });
+canvas.addEventListener('pointerup', () => mouse = null);
+canvas.addEventListener('pointercancel', () => mouse = null);
+$('draw').onclick = () => { mouseMode = 0; $('draw').classList.add('on'); $('erase').classList.remove('on'); };
+$('erase').onclick = () => { mouseMode = 1; $('erase').classList.add('on'); $('draw').classList.remove('on'); };
+
+// ---------------- pętla ----------------
+let frame = 0, sizeKey = '', fpsN = 0, fpsT = performance.now();
+setPalette(0);
+function loop(now) {
+  const key = canvas.clientWidth + 'x' + canvas.clientHeight;
+  if (key !== sizeKey) { sizeKey = key; build(); }
+  const steps = 2;
+  for (let s = 0; s < steps; s++) {
+    const D = Math.PI / 180;
+    simU[0] = W; simU[1] = H; simU[2] = count; simU[3] = frame++;
+    simF[4] = params.sa * D; simF[5] = params.sd; simF[6] = params.ra * D; simF[7] = params.speed;
+    simF[8] = params.decay / 100; simF[9] = 0.5; simF[10] = 0.12; simF[11] = Math.max(10, Math.min(W, H) * 0.03);
+    simF[12] = mouse ? mouse[0] : -1e4; simF[13] = mouse ? mouse[1] : -1e4; simF[14] = mouse ? 1 : 0; simF[15] = mouseMode;
+    // każdy krok w osobnym submit, żeby każdy dostał własne uniformy (inny numer klatki = inny losowy skręt)
+    device.queue.writeBuffer(simBuf, 0, simAB);
+    const enc = device.createCommandEncoder();
+    const cp = enc.beginComputePass();
+    cp.setPipeline(agentPipe); cp.setBindGroup(0, agentBGs[cur]); cp.dispatchWorkgroups(Math.ceil(count / 256));
+    cp.setPipeline(diffPipe); cp.setBindGroup(0, diffBGs[cur]); cp.dispatchWorkgroups(Math.ceil(W / 16), Math.ceil(H / 16));
+    cp.end();
+    device.queue.submit([enc.finish()]);
+    cur = 1 - cur;
+  }
+  const enc = device.createCommandEncoder();
+  const rp = enc.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+  rp.setPipeline(renderPipe); rp.setBindGroup(0, renderBGs[cur]); rp.draw(3); rp.end();
+  device.queue.submit([enc.finish()]);
+  fpsN++;
+  if (now - fpsT > 500) { $('stats').textContent = `${(count / 1000).toFixed(0)} tys. agentów · ${W}×${H} · ${Math.round(fpsN * 1000 / (now - fpsT))} FPS`; fpsN = 0; fpsT = now; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

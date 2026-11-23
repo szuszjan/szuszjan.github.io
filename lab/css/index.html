@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CSS z przyszłości — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🎨</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  :root { --c: #14b8a6; interpolate-size: allow-keywords; }
+  body { background: #0b0b0e; overflow-x: hidden; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 20px; }
+
+  /* 1. pasek postępu przewijania: animation-timeline: scroll() */
+  .progress { position: fixed; inset: 0 0 auto; height: 3px; z-index: 200; transform-origin: 0 50%;
+    background: linear-gradient(90deg, #14b8a6, #8b7bff, #d946ef); animation: grow linear both; animation-timeline: scroll(root); }
+  @keyframes grow { from { transform: scaleX(0); } }
+
+  /* hero z parallaksą: view() */
+  .hero { height: 92vh; display: grid; place-items: center; text-align: center; position: relative; overflow: hidden; }
+  .hero h1 { font-size: clamp(48px, 11vw, 120px); line-height: .9; margin: 0; letter-spacing: -.05em; font-weight: 850; view-transition-name: lab-title;
+    background: linear-gradient(120deg, #5eead4, #a78bfa 50%, #f0abfc); -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: heroOut linear both; animation-timeline: view(); animation-range: exit 0% exit 100%; }
+  @keyframes heroOut { to { transform: translateY(-30vh) scale(.8); opacity: 0; filter: blur(8px); } }
+  .hero p { color: var(--dim); max-width: 560px; margin: 18px auto 0; font-size: 17px; text-wrap: balance; }
+  .hero .scroll { margin-top: 40px; font: 12px var(--mono); color: var(--dimmer); animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(6px); } }
+  .orb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .5; z-index: -1; animation: orbMove linear both; animation-timeline: scroll(root); }
+  .orb.a { width: 40vmax; height: 40vmax; background: #0d9488; left: -10vmax; top: 10vh; }
+  .orb.b { width: 30vmax; height: 30vmax; background: #7c3aed; right: -8vmax; top: 30vh; animation-direction: reverse; }
+  @keyframes orbMove { to { transform: translate(30vw, 60vh) rotate(180deg); } }
+
+  /* sekcje z przyklejonym nagłówkiem: scroll-state(stuck) */
+  section.demo { margin: 0 0 90px; }
+  .demo-head { position: sticky; top: 0; z-index: 10; container-type: scroll-state; }
+  .demo-head > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0; transition: all .25s; border-bottom: 1px solid transparent; }
+  @container scroll-state(stuck: top) {
+    .demo-head > div { background: rgba(11,11,14,.8); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); padding: 10px 14px; margin: 0 -14px; border-bottom-color: var(--border); }
+    .demo-head h2 { font-size: 16px !important; }
+  }
+  .demo-head h2 { margin: 0; font-size: 24px; letter-spacing: -.3px; transition: font-size .25s; }
+  .demo-head code { font: 12px var(--mono); color: var(--dim); }
+  .sup { font: 600 11px var(--mono); padding: 4px 8px; border-radius: 100px; white-space: nowrap; }
+  .sup.ok { color: var(--ok); background: rgba(74,222,128,.08); }
+  .sup.no { color: var(--bad); background: rgba(248,113,113,.08); }
+  .demo > p { color: var(--dim); margin: 4px 0 18px; }
+  .stage { border-radius: 18px; border: 1px solid var(--border); background: #111116; padding: 22px; position: relative; overflow: hidden; }
+
+  /* 2. odsłanianie kart: view() + sibling-index() */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .cards div { aspect-ratio: 1; border-radius: 16px; display: grid; place-items: center; font-size: 34px;
+    background: linear-gradient(135deg, oklch(from var(--c) l c calc(h + var(--i, 0) * 25)), oklch(from var(--c) calc(l - .25) c calc(h + var(--i, 0) * 25 + 60)));
+    animation: pop linear both; animation-timeline: view(); animation-range: entry 10% cover 35%; }
+  @keyframes pop { from { opacity: 0; transform: translateY(60px) rotate(-8deg) scale(.7); } }
+
+  /* 3. przypięta galeria pozioma sterowana przewijaniem pionowym */
+  .pin { height: 300vh; view-timeline-name: --pin; }
+  .pin .sticky { position: sticky; top: 0; height: 100vh; display: flex; align-items: center; overflow: hidden; }
+  .track { display: flex; gap: 20px; padding: 0 10vw; animation: slide linear both; animation-timeline: --pin; animation-range: contain 0% contain 100%; }
+  @keyframes slide { to { transform: translateX(calc(-100% + 80vw)); } }
+  .track > div { flex: none; width: min(70vw, 420px); height: 56vh; border-radius: 24px; display: flex; align-items: flex-end; padding: 22px; font-size: 26px; font-weight: 800; letter-spacing: -.02em;
+    background: linear-gradient(160deg, oklch(from var(--c) .75 .15 calc(h + var(--i) * 40)), oklch(from var(--c) .35 .12 calc(h + var(--i) * 40 + 80))); }
+
+  /* 4. @property: animowany kąt gradientu */
+  @property --angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+  @property --glow { syntax: '<color>'; inherits: false; initial-value: #14b8a6; }
+  .ring { width: min(340px, 100%); margin: 10px auto; padding: 3px; border-radius: 22px; background: conic-gradient(from var(--angle), #14b8a6, #8b7bff, #d946ef, #f59e0b, #14b8a6);
+    animation: spin 4s linear infinite, hue 6s ease-in-out infinite; box-shadow: 0 0 40px -6px var(--glow); }
+  .ring > div { background: #111116; border-radius: 19px; padding: 28px; text-align: center; }
+  @keyframes spin { to { --angle: 360deg; } }
+  @keyframes hue { 50% { --glow: #d946ef; } }
+
+  /* 5. anchor positioning + popover + @starting-style */
+  .anchors { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; padding: 50px 0; }
+  .anchors button { anchor-name: var(--an); }
+  .tip { position: fixed; inset: auto; margin: 0; position-anchor: var(--an); top: anchor(bottom); left: anchor(center); translate: -50% 10px;
+    position-try-fallbacks: flip-block; width: 220px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border-strong); background: #1c1c24; color: var(--text); font-size: 13px;
+    box-shadow: 0 16px 40px rgba(0,0,0,.5); opacity: 1; transform: none; transition: opacity .25s, transform .25s, display .25s allow-discrete, overlay .25s allow-discrete; }
+  .tip:not(:popover-open) { opacity: 0; transform: translateY(-8px) scale(.96); }
+  @starting-style { .tip:popover-open { opacity: 0; transform: translateY(-8px) scale(.96); } }
+  .tip::backdrop { background: transparent; }
+
+  /* 6. animowanie height: auto (interpolate-size) */
+  details { border: 1px solid var(--border); border-radius: 14px; margin: 10px 0; background: #14141a; overflow: hidden; }
+  details summary { cursor: pointer; padding: 14px 16px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; }
+  details summary::after { content: "+"; transition: rotate .3s; }
+  details[open] summary::after { rotate: 45deg; }
+  details::details-content { height: 0; overflow: clip; transition: height .4s ease, content-visibility .4s allow-discrete; }
+  details[open]::details-content { height: auto; }
+  details .inner { padding: 0 16px 16px; color: var(--dim); }
+
+  /* 7. container queries */
+  .resizer { resize: horizontal; overflow: auto; width: 100%; min-width: 220px; max-width: 100%; border: 1px dashed var(--border-strong); border-radius: 14px; padding: 12px; container-type: inline-size; }
+  .profile { display: grid; gap: 12px; align-items: center; grid-template-columns: 1fr; text-align: center; }
+  .profile .av { width: 64px; height: 64px; border-radius: 50%; margin: auto; background: linear-gradient(135deg, #5eead4, #a78bfa); }
+  .profile h4 { margin: 0; } .profile p { margin: 0; color: var(--dim); font-size: 13px; }
+  .profile .stats { display: none; font: 12px var(--mono); color: var(--dim); }
+  @container (min-width: 420px) { .profile { grid-template-columns: auto 1fr; text-align: left; } .profile .av { margin: 0; } }
+  @container (min-width: 620px) { .profile { grid-template-columns: auto 1fr auto; } .profile .stats { display: block; } .profile .av { width: 84px; height: 84px; } }
+
+  /* 8. :has() */
+  .form { display: grid; gap: 10px; max-width: 420px; padding: 18px; border-radius: 16px; border: 2px solid var(--border); transition: border-color .25s, box-shadow .25s; }
+  .form:has(input:user-invalid) { border-color: var(--bad); box-shadow: 0 0 0 4px rgba(248,113,113,.12); }
+  .form:has(input:valid:not(:placeholder-shown)):not(:has(input:invalid)) { border-color: var(--ok); }
+  .form:has(#agree:checked) .go { background: var(--ok); color: #000; border-color: transparent; }
+  .form label { font-size: 13px; color: var(--dim); }
+
+  /* 9. field-sizing + relative colors */
+  textarea.grow { field-sizing: content; min-height: 44px; max-height: 260px; width: 100%; resize: none; font-family: inherit; font-size: 14px; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-top: 12px; }
+  .swatches div { height: 70px; border-radius: 12px; display: flex; align-items: flex-end; padding: 6px 8px; font: 10.5px var(--mono); color: rgba(255,255,255,.85); }
+
+  /* 10. karuzela CSS: ::scroll-marker i ::scroll-button */
+  .carousel { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; scroll-marker-group: after; padding-bottom: 6px; anchor-name: --carousel; }
+  .carousel > div { flex: none; width: 100%; height: 220px; scroll-snap-align: center; border-radius: 18px; display: grid; place-items: center; font-size: 60px;
+    background: linear-gradient(135deg, oklch(from var(--c) .7 .16 calc(h + var(--i) * 70)), oklch(from var(--c) .3 .1 calc(h + var(--i) * 70 + 50))); }
+  .carousel > div::scroll-marker { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--dimmer); }
+  .carousel > div::scroll-marker:target-current { background: #fff; width: 26px; border-radius: 5px; }
+  .carousel::scroll-marker-group { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+  .carousel::scroll-button(*) { position: absolute; position-anchor: --carousel; top: anchor(center); translate: 0 -50%; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border-strong); background: rgba(0,0,0,.5); color: #fff; cursor: pointer; font-size: 18px; }
+  .carousel::scroll-button(left) { content: "‹"; left: calc(anchor(left) + 10px); }
+  .carousel::scroll-button(right) { content: "›"; right: calc(anchor(right) + 10px); }
+  .carousel::scroll-button(*):disabled { opacity: .25; }
+
+  /* 11. corner-shape */
+  .corners { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .corners div { width: 110px; height: 110px; border-radius: 34px; background: linear-gradient(135deg, #5eead4, #8b7bff); display: grid; place-items: center; font: 11px var(--mono); color: #0b0b0e; font-weight: 700; }
+
+  /* 12. View Transitions: przetasowanie siatki */
+  .shuffle { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .shuffle div { aspect-ratio: 1; border-radius: 14px; display: grid; place-items: center; font-weight: 800; font-size: 22px;
+    background: oklch(from var(--c) .7 .14 calc(h + var(--i) * 22)); color: #0b0b0e; view-transition-class: tile; }
+  ::view-transition-group(*.tile) { animation-duration: .55s; animation-timing-function: cubic-bezier(.3, 1.4, .5, 1); }
+
+  footer { text-align: center; color: var(--dimmer); font-size: 12.5px; padding: 40px 0 70px; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+</style>
+</head>
+<body>
+<div class="progress"></div>
+<a class="lab-back" href="../">← Lab</a>
+
+<header class="hero">
+  <div class="orb a"></div><div class="orb b"></div>
+  <div>
+    <h1>CSS z<br>przyszłości</h1>
+    <p>Wszystkie animacje na tej stronie robi sam CSS: sterowane przewijaniem, kotwiczone, interpolowane do <code>auto</code>. JavaScript tylko wykrywa wsparcie i tasuje kafelki.</p>
+    <div class="scroll">↓ przewijaj</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section class="demo" data-sup="animation-timeline: view()">
+  <div class="demo-head"><div><h2>Animacje od przewijania</h2><span class="sup"></span></div></div>
+  <p>Pasek u góry, wylatujący nagłówek i wjeżdżające kafelki są przypięte do pozycji scrolla przez <code>animation-timeline: scroll()</code> i <code>view()</code>, bez <code>IntersectionObserver</code>. Kolory kafelków wylicza <code>oklch(from …)</code>, czyli względna składnia kolorów.</p>
+  <div class="cards">
+    <div style="--i:0">🚀</div><div style="--i:1">🌊</div><div style="--i:2">🪐</div><div style="--i:3">🧊</div>
+    <div style="--i:4">🌈</div><div style="--i:5">🫧</div><div style="--i:6">🍄</div><div style="--i:7">⚡</div>
+  </div>
+</section>
+
+<section class="demo" data-sup="view-timeline-name: --a">
+  <div class="demo-head"><div><h2>Przypięta galeria pozioma</h2><span class="sup"></span></div></div>
+  <p>Sekcja ma 300vh wysokości i nazwaną oś <code>view-timeline-name</code>. Przewijanie w pionie przesuwa taśmę w poziomie, bez grama JS.</p>
+</section>
+</main>
+<div class="pin">
+  <div class="sticky">
+    <div class="track">
+      <div style="--i:0">01 · Scroll-driven</div><div style="--i:1">02 · Bez JS</div><div style="--i:2">03 · Na wątku kompozytora</div><div style="--i:3">04 · 60+ FPS</div><div style="--i:4">05 · Koniec ✓</div>
+    </div>
+  </div>
+</div>
+<main class="wrap" style="margin-top:90px">
+
+<section class="demo" data-sup="(--x: 0) and (background: conic-gradient(red, blue))" data-js="property">
+  <div class="demo-head"><div><h2>@property</h2><span class="sup"></span></div></div>
+  <p>Zarejestrowana zmienna CSS z typem <code>&lt;angle&gt;</code> da się animować płynnie, a zwykła zmienna przeskoczyłaby od razu do wartości końcowej. Tu kręci gradientem stożkowym i zmienia kolor poświaty.</p>
+  <div class="ring"><div><b>conic-gradient(from var(--angle))</b><br><span style="color:var(--dim);font-size:13px">@keyframes spin { to { --angle: 360deg } }</span></div></div>
+</section>
+
+<section class="demo" data-sup="anchor-name: --a">
+  <div class="demo-head"><div><h2>Anchor positioning + popover</h2><span class="sup"></span></div></div>
+  <p>Dymki to natywne <code>popover</code>, przyczepione do przycisków przez <code>position-anchor</code> i <code>anchor()</code>. Gdy brakuje miejsca, <code>position-try-fallbacks: flip-block</code> sam przerzuca dymek nad przycisk. Wejście animuje <code>@starting-style</code>.</p>
+  <div class="stage anchors">
+    <button class="btn" popovertarget="t1" style="--an:--b1">Co to jest?</button>
+    <button class="btn" popovertarget="t2" style="--an:--b2">Jak to działa?</button>
+    <button class="btn primary" popovertarget="t3" style="--an:--b3">Wsparcie</button>
+  </div>
+  <div popover id="t1" class="tip" style="--an:--b1">Element przyczepiony do innego elementu bez liczenia pozycji w JS. Koniec z Popper.js.</div>
+  <div popover id="t2" class="tip" style="--an:--b2"><code>top: anchor(bottom)</code> stawia górną krawędź dymka przy dolnej krawędzi przycisku. Klik poza dymkiem zamyka go (light dismiss).</div>
+  <div popover id="t3" class="tip" style="--an:--b3">Chrome/Edge 125+, Safari 26+. W innych przeglądarkach popover nadal działa, tylko pojawia się na środku.</div>
+</section>
+
+<section class="demo" data-sup="interpolate-size: allow-keywords">
+  <div class="demo-head"><div><h2>Animacja do height: auto</h2><span class="sup"></span></div></div>
+  <p>Przez lata nie dało się płynnie animować do <code>height: auto</code>. Teraz wystarczy <code>interpolate-size: allow-keywords</code> i pseudo-element <code>::details-content</code>.</p>
+  <details><summary>Dlaczego to było trudne?</summary><div class="inner">Przeglądarka nie umiała interpolować między liczbą a słowem kluczowym <code>auto</code>, więc wszyscy mierzyli scrollHeight w JS albo kombinowali z max-height.</div></details>
+  <details><summary>Co jeszcze można animować?</summary><div class="inner"><code>min-content</code>, <code>max-content</code>, <code>fit-content</code>. A dzięki <code>transition-behavior: allow-discrete</code> nawet <code>display: none</code> i <code>content-visibility</code>.</div></details>
+  <details><summary>Czy to działa z display: none?</summary><div class="inner">Tak, dymki z sekcji wyżej znikają z animacją, choć na końcu dostają <code>display: none</code>.</div></details>
+</section>
+
+<section class="demo" data-sup="container-type: inline-size">
+  <div class="demo-head"><div><h2>Container queries</h2><span class="sup"></span></div></div>
+  <p>Złap prawy dolny róg ramki i zmień jej szerokość. Karta dostosowuje układ do <b>swojego kontenera</b>, a nie do szerokości okna (<code>@container (min-width: 420px)</code>).</p>
+  <div class="resizer">
+    <div class="profile">
+      <div class="av"></div>
+      <div><h4>szuszjan</h4><p>ESP32, VB.NET, a teraz CSS z przyszłości.</p></div>
+      <div class="stats">⭐ 128 · 🍴 24 · 👀 1.2k</div>
+    </div>
+  </div>
+</section>
+
+<section class="demo" data-sup="selector(:has(a))">
+  <div class="demo-head"><div><h2>:has() – selektor rodzica</h2><span class="sup"></span></div></div>
+  <p>Ramka formularza zmienia kolor zależnie od stanu pól w środku: <code>.form:has(input:user-invalid)</code>. Przycisk robi się zielony, gdy zaznaczysz zgodę. Zero JavaScriptu.</p>
+  <div class="form">
+    <label>E-mail <input type="email" required placeholder="ty@example.com" style="width:100%"></label>
+    <label>Kod (4 cyfry) <input type="text" pattern="\d{4}" required placeholder="1234" style="width:100%"></label>
+    <label><input type="checkbox" id="agree"> Zgadzam się, że CSS jest fajny</label>
+    <button class="btn go" type="button">Wyślij</button>
+  </div>
+</section>
+
+<section class="demo" data-sup="field-sizing: content">
+  <div class="demo-head"><div><h2>field-sizing + kolory względne</h2><span class="sup"></span></div></div>
+  <p>Pole tekstowe rośnie razem z treścią (<code>field-sizing: content</code>). Paletę niżej generuje <code>oklch(from var(--c) …)</code> z jednego koloru wybranego obok.</p>
+  <div class="btnrow"><input type="color" id="pick" value="#14b8a6"> <span style="font:12px var(--mono);color:var(--dim)">--c</span></div>
+  <textarea class="grow" placeholder="Pisz, a pole będzie rosło…"></textarea>
+  <div class="swatches">
+    <div style="background:oklch(from var(--c) calc(l + .25) c h)">l + .25</div>
+    <div style="background:var(--c)">--c</div>
+    <div style="background:oklch(from var(--c) calc(l - .2) c h)">l − .2</div>
+    <div style="background:oklch(from var(--c) l c calc(h + 120))">h + 120°</div>
+    <div style="background:oklch(from var(--c) l c calc(h + 180))">h + 180°</div>
+    <div style="background:oklch(from var(--c) l calc(c * .3) h)">c × 0.3</div>
+  </div>
+</section>
+
+<section class="demo" data-sup="scroll-marker-group: after">
+  <div class="demo-head"><div><h2>Karuzela w czystym CSS</h2><span class="sup"></span></div></div>
+  <p>Kropki i strzałki to pseudo-elementy <code>::scroll-marker</code> i <code>::scroll-button()</code>, generowane przez przeglądarkę. Bez nich zostaje zwykła karuzela na <code>scroll-snap</code>.</p>
+  <div style="position:relative">
+    <div class="carousel">
+      <div style="--i:0">🏔️</div><div style="--i:1">🏝️</div><div style="--i:2">🌋</div><div style="--i:3">🏜️</div><div style="--i:4">🌌</div>
+    </div>
+  </div>
+</section>
+
+<section class="demo" data-sup="corner-shape: squircle">
+  <div class="demo-head"><div><h2>corner-shape</h2><span class="sup"></span></div></div>
+  <p>Inne kształty narożników niż łuk: <code>squircle</code> jak ikony iOS, <code>bevel</code>, <code>scoop</code>, <code>notch</code>. Bez wsparcia zostają zwykłe zaokrąglenia.</p>
+  <div class="corners">
+    <div style="corner-shape:round">round</div><div style="corner-shape:squircle">squircle</div><div style="corner-shape:bevel">bevel</div><div style="corner-shape:scoop">scoop</div><div style="corner-shape:notch">notch</div>
+  </div>
+</section>
+
+<section class="demo" data-js="vt">
+  <div class="demo-head"><div><h2>View Transitions</h2><span class="sup"></span></div></div>
+  <p><code>document.startViewTransition()</code> robi zdjęcie strony przed zmianą i po niej, a potem animuje każdy element z <code>view-transition-name</code> do nowej pozycji. Przejście z listy eksperymentów do tej strony to wersja między dokumentami: <code>@view-transition { navigation: auto }</code>.</p>
+  <div class="btnrow"><button class="btn primary" id="shuffle">🔀 Przetasuj</button><button class="btn" id="sort">Sortuj</button></div>
+  <div class="shuffle" id="tiles"></div>
+</section>
+
+</main>
+<footer>Wsparcie wykrywane przez <code>CSS.supports()</code> w tej przeglądarce · <a href="../" style="color:var(--dim)">← wróć do Lab</a></footer>
+
+<script>
+// wykrywanie wsparcia dla każdej sekcji
+document.querySelectorAll('section.demo').forEach(s => {
+  const el = s.querySelector('.sup');
+  let ok;
+  if (s.dataset.js === 'vt') ok = 'startViewTransition' in document;
+  else if (s.dataset.js === 'property') ok = 'registerProperty' in CSS;
+  else ok = CSS.supports(s.dataset.sup);
+  el.classList.add(ok ? 'ok' : 'no');
+  el.textContent = ok ? '✓ działa tutaj' : '✗ brak wsparcia';
+});
+document.getElementById('pick').oninput = e => document.documentElement.style.setProperty('--c', e.target.value);
+
+// view transitions: przetasowanie kafelków
+const tiles = document.getElementById('tiles');
+let order = Array.from({ length: 12 }, (_, i) => i);
+function render() {
+  tiles.innerHTML = order.map(i => `<div style="--i:${i};view-transition-name:t${i}">${i + 1}</div>`).join('');
+}
+render();
+const go = fn => document.startViewTransition ? document.startViewTransition(() => { fn(); render(); }) : (fn(), render());
+document.getElementById('shuffle').onclick = () => go(() => order.sort(() => Math.random() - .5));
+document.getElementById('sort').onclick = () => go(() => order.sort((a, b) => a - b));
+</script>
+</body>
+</html>

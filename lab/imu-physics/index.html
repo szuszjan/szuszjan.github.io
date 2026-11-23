@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Fizyka IMU — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🎱</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  body { background: radial-gradient(ellipse at 50% 30%, #17202b, #0b0d12 70%); }
+  .sensor { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: center; margin: 6px 0 10px; }
+  .level { width: 64px; height: 64px; border-radius: 50%; position: relative; background: radial-gradient(circle, rgba(255,255,255,.06), rgba(255,255,255,.02)); border: 1px solid var(--border-strong); }
+  .level::before, .level::after { content: ""; position: absolute; background: var(--border); }
+  .level::before { left: 50%; top: 6px; bottom: 6px; width: 1px; }
+  .level::after { top: 50%; left: 6px; right: 6px; height: 1px; }
+  .level i { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; left: 50%; top: 50%; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #d9ffe6, #4ade80); box-shadow: 0 0 10px rgba(74,222,128,.6); }
+  .vals { font: 11.5px/1.55 var(--mono); color: var(--dim); white-space: pre; }
+  .start { position: fixed; inset: 0; z-index: 95; display: none; place-items: center; background: rgba(5,6,10,.7); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .start.show { display: grid; }
+</style>
+</head>
+<body class="fullscreen">
+<canvas class="stage" id="c"></canvas>
+<a class="lab-back" href="../">← Lab</a>
+
+<aside class="lab-panel">
+  <header>
+    <div><h1>Fizyka IMU</h1></div>
+    <button class="toggle" aria-label="Zwiń panel">–</button>
+  </header>
+  <p>Grawitacja pochodzi z <code>deviceorientation</code> (kąty beta/gamma przeliczone na wektor i obrócone o orientację ekranu). Potrząśnięcie wykrywa <code>devicemotion</code>. Zderzenia dają wibrację i stuknięcie z Web Audio.</p>
+  <div class="apis"><span class="chip">DeviceOrientation</span><span class="chip">DeviceMotion</span><span class="chip">Vibration</span><span class="chip">Wake Lock</span><span class="chip">Web Audio</span></div>
+  <div class="sensor">
+    <div class="level" title="Poziomica"><i id="bubble"></i></div>
+    <div class="vals" id="vals">czekam na czujniki…</div>
+  </div>
+  <div class="row"><label>Rodzaj</label>
+    <select id="kind"><option value="balls">Kulki</option><option value="emoji">Emoji</option><option value="sand">Piasek</option></select>
+  </div>
+  <div class="row"><label>Sprężystość</label><input type="range" id="bounce" min="0" max="95" value="55"><output></output></div>
+  <div class="row"><label>Siła grawitacji</label><input type="range" id="gscale" min="10" max="300" value="100"><output></output></div>
+  <div class="row">
+    <button class="btn" id="more">+ 20</button>
+    <button class="btn" id="clear">Wyczyść</button>
+    <button class="btn" id="shake">💥 Potrząśnij</button>
+  </div>
+  <div class="row">
+    <button class="btn on" id="vib">📳 Wibracje</button>
+    <button class="btn" id="snd">🔊 Dźwięk</button>
+    <button class="btn" id="mouseg" title="Na komputerze: grawitacja w stronę kursora">🖱️ Grawitacja do kursora</button>
+  </div>
+  <p style="margin-top:8px;font-size:11.5px;color:var(--dimmer)">Na komputerze: strzałki zmieniają grawitację, kulki można chwytać i rzucać, dwuklik je rozrzuca.</p>
+</aside>
+
+<div class="start" id="start"><div style="text-align:center">
+  <button class="btn primary" id="startBtn" style="font-size:16px;padding:14px 22px">Włącz czujniki ruchu</button>
+  <p style="color:var(--dim);margin-top:10px">iOS wymaga zgody na dostęp do żyroskopu.</p>
+</div></div>
+
+<script src="../common.js"></script>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+
+// ---------------- parametry ----------------
+const params = {};
+for (const id of ['bounce', 'gscale']) {
+  const el = $(id), out = el.nextElementSibling;
+  const upd = () => { params[id] = +el.value; out.textContent = el.value; };
+  el.addEventListener('input', upd); upd();
+}
+let vibOn = 'vibrate' in navigator, sndOn = false, mouseGravity = false;
+if (!vibOn) { $('vib').classList.remove('on'); $('vib').disabled = true; $('vib').title = 'Vibration API niedostępne (np. iOS)'; }
+$('vib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on', vibOn); if (vibOn) navigator.vibrate(30); };
+$('snd').onclick = e => { sndOn = !sndOn; e.currentTarget.classList.toggle('on', sndOn); if (sndOn) initAudio(); };
+$('mouseg').onclick = e => { mouseGravity = !mouseGravity; e.currentTarget.classList.toggle('on', mouseGravity); };
+
+// ---------------- czujniki ----------------
+let grav = { x: 0, y: 1 }, sensorGrav = null, lastOri = null, lastAcc = null;
+window.addEventListener('deviceorientation', e => {
+  if (e.beta == null) return;
+  lastOri = e;
+  sensorGrav = Lab.gravityFromOrientation(e.beta, e.gamma);
+});
+window.addEventListener('devicemotion', e => {
+  const a = e.acceleration;
+  if (a && a.x != null) {
+    lastAcc = a;
+    const m = Math.hypot(a.x, a.y, a.z);
+    if (m > 14) shake(Math.min(3, m / 14), a);
+  }
+});
+if (Lab.needsMotionPermission() && matchMedia('(pointer: coarse)').matches) {
+  $('start').classList.add('show');
+  $('startBtn').onclick = async () => {
+    const ok = await Lab.requestMotionPermission();
+    $('start').classList.remove('show');
+    Lab.toast(ok ? 'Przechyl telefon!' : 'Bez zgody – sterowanie dotykiem');
+    Lab.keepAwake(true);
+    initAudio();
+  };
+} else {
+  Lab.keepAwake(true);
+}
+
+// ---------------- dźwięk zderzeń ----------------
+let actx = null;
+function initAudio() {
+  if (actx) return;
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+}
+let lastSnd = 0;
+function tock(strength, r) {
+  if (!sndOn || !actx) return;
+  const now = actx.currentTime;
+  if (now - lastSnd < 0.025) return;
+  lastSnd = now;
+  const o = actx.createOscillator(), gn = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(2200 / Math.sqrt(r), now);
+  o.frequency.exponentialRampToValueAtTime(300 / Math.sqrt(r) + 80, now + 0.08);
+  gn.gain.setValueAtTime(Math.min(0.35, strength * 0.12), now);
+  gn.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+  o.connect(gn).connect(actx.destination);
+  o.start(now); o.stop(now + 0.13);
+}
+let lastVib = 0;
+function buzz(strength) {
+  if (!vibOn || (navigator.userActivation && !navigator.userActivation.hasBeenActive)) return;
+  const t = performance.now();
+  if (t - lastVib < 60) return;
+  lastVib = t;
+  navigator.vibrate(Math.round(Math.min(35, 6 + strength * 10)));
+}
+
+// ---------------- ciała ----------------
+const COLORS = ['#ff5f6d', '#ffc371', '#47e5bc', '#4facfe', '#a18cd1', '#f093fb', '#f5f7fa', '#43e97b'];
+const EMOJI = ['🍊', '⚽', '🏀', '🍉', '🌍', '🎱', '🍩', '🥎', '🪐', '🍪', '🫐', '😀'];
+let bodies = [];
+let W = 0, H = 0, dpr = 1;
+const sprites = new Map();
+function emojiSprite(e, r) {
+  const key = e + '|' + Math.round(r * dpr);
+  if (sprites.has(key)) return sprites.get(key);
+  const s = Math.ceil(r * 2.3 * dpr), c = document.createElement('canvas');
+  c.width = c.height = s;
+  const x = c.getContext('2d');
+  x.font = `${r * 2 * dpr * 0.92}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(e, s / 2, s / 2 + r * dpr * 0.08);
+  sprites.set(key, c);
+  return c;
+}
+function addBodies(n, kind = $('kind').value) {
+  const base = Math.min(W, H);
+  for (let i = 0; i < n; i++) {
+    let r;
+    if (kind === 'sand') r = base * (0.008 + Math.random() * 0.006);
+    else r = base * (0.025 + Math.random() * 0.035);
+    bodies.push({
+      x: r + Math.random() * (W - 2 * r), y: r + Math.random() * H * 0.5,
+      vx: (Math.random() - .5) * 200, vy: 0, r, m: r * r, a: Math.random() * 6.28, av: 0,
+      kind, color: COLORS[Math.floor(Math.random() * COLORS.length)], emoji: EMOJI[Math.floor(Math.random() * EMOJI.length)],
+    });
+  }
+}
+function reset() {
+  bodies = [];
+  const kind = $('kind').value;
+  addBodies(kind === 'sand' ? 700 : kind === 'emoji' ? 40 : 55, kind);
+}
+$('kind').onchange = reset;
+$('more').onclick = () => addBodies($('kind').value === 'sand' ? 200 : 20);
+$('clear').onclick = () => bodies = [];
+
+function shake(strength = 1.5, a) {
+  for (const b of bodies) {
+    const ang = Math.random() * Math.PI * 2;
+    b.vx += Math.cos(ang) * 900 * strength * Math.random() + (a ? -a.x * 60 : 0);
+    b.vy += Math.sin(ang) * 900 * strength * Math.random() + (a ? a.y * 60 : 0);
+  }
+  buzz(3);
+}
+$('shake').onclick = () => shake(1.6);
+canvas.addEventListener('dblclick', () => shake(1.6));
+
+// ---------------- wskaźnik: chwytanie i rzucanie ----------------
+const grabs = new Map();
+let mousePos = null;
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  initAudio();
+  let best = null, bd = 1e9;
+  for (const b of bodies) {
+    const d = Math.hypot(b.x - e.clientX, b.y - e.clientY) - b.r;
+    if (d < bd) { bd = d; best = b; }
+  }
+  if (best && bd < 24) grabs.set(e.pointerId, { b: best, ox: best.x - e.clientX, oy: best.y - e.clientY, px: e.clientX, py: e.clientY, t: performance.now() });
+});
+canvas.addEventListener('pointermove', e => {
+  mousePos = { x: e.clientX, y: e.clientY };
+  const gr = grabs.get(e.pointerId);
+  if (!gr) return;
+  const now = performance.now(), dt = Math.max(1, now - gr.t) / 1000;
+  gr.b.vx = (e.clientX - gr.px) / dt; gr.b.vy = (e.clientY - gr.py) / dt;
+  gr.px = e.clientX; gr.py = e.clientY; gr.t = now;
+  gr.b.x = e.clientX + gr.ox; gr.b.y = e.clientY + gr.oy;
+});
+const release = e => grabs.delete(e.pointerId);
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+
+const keys = {};
+addEventListener('keydown', e => keys[e.key] = true);
+addEventListener('keyup', e => keys[e.key] = false);
+
+// ---------------- symulacja ----------------
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  const nw = innerWidth, nh = innerHeight;
+  canvas.width = Math.round(nw * dpr); canvas.height = Math.round(nh * dpr);
+  const first = !W;
+  W = nw; H = nh;
+  sprites.clear();
+  if (first) reset();
+}
+addEventListener('resize', resize);
+resize();
+
+function step(dt) {
+  const G = 2400 * params.gscale / 100;
+  const e = params.bounce / 100;
+  const held = new Set([...grabs.values()].map(g => g.b));
+  // całkowanie
+  for (const b of bodies) {
+    if (held.has(b)) continue;
+    b.vx += grav.x * G * dt; b.vy += grav.y * G * dt;
+    b.vx *= 0.9995; b.vy *= 0.9995;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+  }
+  // zderzenia: siatka przestrzenna
+  let maxR = 1; for (const b of bodies) maxR = Math.max(maxR, b.r);
+  const cs = maxR * 2, cols = Math.ceil(W / cs) + 1, grid = new Map();
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i], k = Math.floor(b.x / cs) + Math.floor(b.y / cs) * cols;
+    let cell = grid.get(k); if (!cell) grid.set(k, cell = []); cell.push(i);
+  }
+  for (let i = 0; i < bodies.length; i++) {
+    const a = bodies[i], cx = Math.floor(a.x / cs), cy = Math.floor(a.y / cs);
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      const cell = grid.get(cx + ox + (cy + oy) * cols);
+      if (!cell) continue;
+      for (const j of cell) {
+        if (j <= i) continue;
+        const b = bodies[j];
+        const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r, d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, pen = rr - d;
+        const ia = held.has(a) ? 0 : 1 / a.m, ib = held.has(b) ? 0 : 1 / b.m, is = ia + ib;
+        if (!is) continue;
+        a.x -= nx * pen * ia / is; a.y -= ny * pen * ia / is;
+        b.x += nx * pen * ib / is; b.y += ny * pen * ib / is;
+        const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (rv < 0) {
+          const j = -(1 + e) * rv / is;
+          a.vx -= j * nx * ia; a.vy -= j * ny * ia;
+          b.vx += j * nx * ib; b.vy += j * ny * ib;
+          // tarcie styczne -> obrót
+          const tx = -ny, ty = nx, tv = (b.vx - a.vx) * tx + (b.vy - a.vy) * ty;
+          a.av += tv / a.r * 0.05; b.av -= tv / b.r * 0.05;
+          if (-rv > 380) { buzz(-rv / 600); tock(-rv / 500, (a.r + b.r) / 2); }
+        }
+      }
+    }
+  }
+  // ściany
+  for (const b of bodies) {
+    let hit = 0;
+    if (b.x < b.r) { b.x = b.r; if (b.vx < 0) { hit = -b.vx; b.vx = -b.vx * e; b.vy *= 0.98; b.av = b.vy / b.r; } }
+    if (b.x > W - b.r) { b.x = W - b.r; if (b.vx > 0) { hit = b.vx; b.vx = -b.vx * e; b.vy *= 0.98; b.av = -b.vy / b.r; } }
+    if (b.y < b.r) { b.y = b.r; if (b.vy < 0) { hit = -b.vy; b.vy = -b.vy * e; b.vx *= 0.98; b.av = -b.vx / b.r; } }
+    if (b.y > H - b.r) { b.y = H - b.r; if (b.vy > 0) { hit = b.vy; b.vy = -b.vy * e; b.vx *= 0.98; b.av = b.vx / b.r; } }
+    if (hit > 450) { buzz(hit / 700); tock(hit / 600, b.r); }
+    b.a += b.av * dt;
+  }
+}
+
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // światło "z góry świata" – przeciwnie do grawitacji
+  const gl = Math.hypot(grav.x, grav.y) || 1;
+  const lx = -grav.x / gl, ly = -grav.y / gl;
+  for (const b of bodies) {
+    if (b.kind === 'emoji') {
+      const s = emojiSprite(b.emoji, b.r), sz = s.width / dpr;
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a);
+      ctx.drawImage(s, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+    } else if (b.kind === 'sand') {
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    } else {
+      const gr = ctx.createRadialGradient(b.x + lx * b.r * .4, b.y + ly * b.r * .4, b.r * .1, b.x, b.y, b.r);
+      gr.addColorStop(0, '#ffffff');
+      gr.addColorStop(0.25, b.color);
+      gr.addColorStop(1, shade(b.color));
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+const shadeCache = {};
+function shade(hex) {
+  if (shadeCache[hex]) return shadeCache[hex];
+  const n = parseInt(hex.slice(1), 16), f = 0.35;
+  return shadeCache[hex] = `rgb(${((n >> 16) & 255) * f | 0},${((n >> 8) & 255) * f | 0},${(n & 255) * f | 0})`;
+}
+
+// ---------------- pętla ----------------
+let last = performance.now(), uiT = 0;
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  // źródło grawitacji: czujnik > klawisze > kursor > w dół
+  let target = sensorGrav ? { ...sensorGrav } : { x: 0, y: 1 };
+  if (!sensorGrav) {
+    if (keys.ArrowLeft || keys.a) target = { x: -1, y: 0 };
+    if (keys.ArrowRight || keys.d) target = { x: 1, y: 0 };
+    if (keys.ArrowUp || keys.w) target = { x: 0, y: -1 };
+    if (keys.ArrowDown || keys.s) target = { x: 0, y: 1 };
+    if (mouseGravity && mousePos) {
+      const dx = mousePos.x - W / 2, dy = mousePos.y - H / 2, l = Math.hypot(dx, dy) || 1;
+      target = { x: dx / l, y: dy / l };
+    }
+  }
+  grav.x += (target.x - grav.x) * Math.min(1, dt * 12);
+  grav.y += (target.y - grav.y) * Math.min(1, dt * 12);
+  const sub = bodies.length > 400 ? 2 : 4;
+  for (let i = 0; i < sub; i++) step(dt / sub);
+  draw();
+  if (now - uiT > 100) {
+    uiT = now;
+    $('bubble').style.transform = `translate(${-grav.x * 22}px, ${-grav.y * 22}px)`;
+    if (lastOri) {
+      const a = lastAcc;
+      $('vals').textContent =
+        `α ${(lastOri.alpha ?? 0).toFixed(0).padStart(4)}°  β ${lastOri.beta.toFixed(0).padStart(4)}°\n` +
+        `γ ${lastOri.gamma.toFixed(0).padStart(4)}°  ekran ${Lab.screenAngle()}°\n` +
+        `g → (${grav.x.toFixed(2)}, ${grav.y.toFixed(2)})\n` +
+        (a ? `acc ${Math.hypot(a.x, a.y, a.z).toFixed(1)} m/s²` : '');
+    } else {
+      $('vals').textContent = `brak czujnika – użyj\nstrzałek lub kursora\ng → (${grav.x.toFixed(2)}, ${grav.y.toFixed(2)})\n${bodies.length} ciał`;
+    }
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
