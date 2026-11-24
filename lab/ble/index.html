@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BLE Explorer — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>📡</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  body { background: radial-gradient(ellipse at 20% 0%, #10203a, #0b0b0e 60%); min-height: 100dvh; }
+  .page { max-width: 1180px; margin: 0 auto; padding: 70px 18px 40px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.4px; view-transition-name: lab-title; }
+  .lead { color: var(--dim); margin: 0 0 18px; max-width: 760px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .box { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .box h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+  .dev { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dimmer); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .svc { border: 1px solid var(--border); border-radius: 11px; margin: 10px 0; overflow: hidden; }
+  .svc > header { padding: 9px 12px; background: rgba(255,255,255,.04); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .svc > header b { font-size: 14px; }
+  .uuid { font: 11px var(--mono); color: var(--dimmer); word-break: break-all; }
+  .chr { padding: 10px 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+  .chr .top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .props { display: flex; gap: 4px; flex-wrap: wrap; }
+  .val { font: 12.5px var(--mono); color: var(--text); background: rgba(0,0,0,.3); border-radius: 8px; padding: 6px 9px; min-height: 30px; word-break: break-all; }
+  .val .nice { color: #7dd3fc; font-weight: 700; margin-right: 8px; }
+  .val .hex { color: var(--dim); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .actions .btn { padding: 6px 10px; font-size: 12px; }
+  .actions input { flex: 1; min-width: 120px; padding: 5px 8px; font-size: 12px; }
+  #log { font: 11.5px/1.5 var(--mono); height: 260px; overflow: auto; white-space: pre-wrap; color: var(--dim); }
+  #log .t { color: var(--dimmer); }
+  #log .e { color: var(--bad); }
+  #log .n { color: #7dd3fc; }
+  canvas#chart { width: 100%; height: 220px; display: block; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; font: 11.5px var(--mono); color: var(--dim); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .warn { border-color: rgba(251,191,36,.35); background: rgba(251,191,36,.06); color: #fde68a; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<a class="lab-back" href="../">← Lab</a>
+<div class="page">
+  <h1>BLE Explorer</h1>
+  <p class="lead">Łączy się z dowolnym urządzeniem Bluetooth Low Energy przez <b>Web Bluetooth</b>: pokazuje usługi GATT i charakterystyki, pozwala je czytać, zapisywać i subskrybować powiadomienia. Wartości liczbowe lądują na wykresie. Rozpoznaje standardowe UUID, Nordic UART i UUID-y z przykładów BLE dla ESP32.</p>
+
+  <div class="box warn" id="unsupported" hidden>Ta przeglądarka nie obsługuje Web Bluetooth. Działa w Chrome / Edge na komputerze i Androidzie (na iOS np. w aplikacji Bluefy). Strona musi być otwarta przez HTTPS.</div>
+
+  <div class="layout">
+    <div>
+      <div class="box">
+        <h2>Połączenie</h2>
+        <div class="row">
+          <label>Szukaj</label>
+          <select id="mode">
+            <option value="all">Wszystkie urządzenia</option>
+            <option value="name">Nazwa zaczyna się od…</option>
+            <option value="hr">Pulsometry (Heart Rate)</option>
+            <option value="nus">Nordic UART (ESP32, nRF)</option>
+          </select>
+          <input type="text" id="namePrefix" placeholder="np. ESP32" hidden style="flex:1;min-width:100px">
+        </div>
+        <div class="row">
+          <label>Własne UUID</label>
+          <input type="text" id="customUuid" placeholder="dodatkowa usługa, np. 0000ffe0-… lub 0xffe0" style="flex:1;min-width:160px">
+        </div>
+        <div class="row">
+          <button class="btn primary" id="connect">🔍 Wybierz urządzenie</button>
+          <button class="btn" id="disconnect" disabled>Rozłącz</button>
+          <button class="btn" id="known" hidden>↺ Znane urządzenia</button>
+        </div>
+        <div class="dev" style="margin-top:6px"><span class="dot" id="dot"></span><span id="devName" style="color:var(--dim)">Nie połączono</span></div>
+      </div>
+      <div id="services"></div>
+    </div>
+    <div>
+      <div class="box">
+        <h2>Wykres powiadomień</h2>
+        <canvas id="chart"></canvas>
+        <div class="legend" id="legend"><span>Włącz „Notify” przy charakterystyce, żeby zobaczyć dane.</span></div>
+      </div>
+      <div class="box" style="margin-top:16px">
+        <h2>Log</h2>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const ESP_EXAMPLE = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+const full = n => `0000${n.toString(16).padStart(4, '0')}-0000-1000-8000-00805f9b34fb`;
+const SERVICES = {
+  [full(0x1800)]: 'Generic Access', [full(0x180a)]: 'Device Information', [full(0x180f)]: 'Battery',
+  [full(0x180d)]: 'Heart Rate', [full(0x1809)]: 'Health Thermometer', [full(0x181a)]: 'Environmental Sensing',
+  [full(0x1816)]: 'Cycling Speed & Cadence', [full(0x1818)]: 'Cycling Power', [full(0x1826)]: 'Fitness Machine',
+  [full(0x1814)]: 'Running Speed & Cadence', [full(0x1819)]: 'Location & Navigation', [full(0x181b)]: 'Body Composition',
+  [full(0x181d)]: 'Weight Scale', [full(0x1802)]: 'Immediate Alert', [full(0x1803)]: 'Link Loss', [full(0x1804)]: 'Tx Power',
+  [full(0x1805)]: 'Current Time', [full(0xffe0)]: 'HM-10 / HC-08 Serial', [full(0xfff0)]: 'Vendor (0xFFF0)',
+  [NUS]: 'Nordic UART Service', [ESP_EXAMPLE]: 'ESP32 BLE (przykład Arduino)',
+  '0000fe95-0000-1000-8000-00805f9b34fb': 'Xiaomi',
+};
+const CHARS = {
+  [full(0x2a00)]: 'Device Name', [full(0x2a01)]: 'Appearance', [full(0x2a19)]: 'Battery Level',
+  [full(0x2a37)]: 'Heart Rate Measurement', [full(0x2a38)]: 'Body Sensor Location', [full(0x2a29)]: 'Manufacturer Name',
+  [full(0x2a24)]: 'Model Number', [full(0x2a25)]: 'Serial Number', [full(0x2a26)]: 'Firmware Revision',
+  [full(0x2a27)]: 'Hardware Revision', [full(0x2a28)]: 'Software Revision', [full(0x2a23)]: 'System ID',
+  [full(0x2a6e)]: 'Temperature', [full(0x2a6f)]: 'Humidity', [full(0x2a6d)]: 'Pressure', [full(0x2a1c)]: 'Temperature Measurement',
+  [full(0x2a06)]: 'Alert Level', [full(0x2a07)]: 'Tx Power Level', [full(0x2a2b)]: 'Current Time', [full(0xffe1)]: 'HM-10 Data',
+  '6e400002-b5a3-f393-e0a9-e50e24dcca9e': 'NUS RX (zapis do urządzenia)', '6e400003-b5a3-f393-e0a9-e50e24dcca9e': 'NUS TX (powiadomienia)',
+  'beb5483e-36e1-4688-b7f5-ea07361b26a8': 'ESP32 – charakterystyka z przykładu',
+};
+// dekodery dla znanych charakterystyk: zwracają [tekst, liczba?]
+const DECODE = {
+  [full(0x2a19)]: v => [v.getUint8(0) + ' %', v.getUint8(0)],
+  [full(0x2a37)]: v => { const f = v.getUint8(0), hr = f & 1 ? v.getUint16(1, true) : v.getUint8(1); return [hr + ' BPM', hr]; },
+  [full(0x2a6e)]: v => { const t = v.getInt16(0, true) / 100; return [t.toFixed(2) + ' °C', t]; },
+  [full(0x2a6f)]: v => { const h = v.getUint16(0, true) / 100; return [h.toFixed(1) + ' %RH', h]; },
+  [full(0x2a6d)]: v => { const p = v.getUint32(0, true) / 10; return [(p / 100).toFixed(1) + ' hPa', p / 100]; },
+  [full(0x2a38)]: v => [['inna', 'klatka', 'nadgarstek', 'palec', 'dłoń', 'ucho', 'stopa'][v.getUint8(0)] || '?', null],
+};
+
+let device = null, server = null;
+const logEl = $('log');
+function log(msg, cls = '') {
+  const t = new Date().toLocaleTimeString('pl-PL', { hour12: false });
+  const line = document.createElement('div');
+  line.innerHTML = `<span class="t">${t}</span> `;
+  const s = document.createElement('span'); s.className = cls; s.textContent = msg; line.appendChild(s);
+  logEl.appendChild(line);
+  while (logEl.childNodes.length > 400) logEl.firstChild.remove();
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+if (!('bluetooth' in navigator)) {
+  $('unsupported').hidden = false;
+  $('connect').disabled = true;
+  log('navigator.bluetooth niedostępne', 'e');
+} else {
+  navigator.bluetooth.getAvailability?.().then(a => { if (!a) log('Bluetooth jest wyłączony albo brak adaptera', 'e'); });
+  if (navigator.bluetooth.getDevices) $('known').hidden = false;
+}
+$('mode').onchange = () => { $('namePrefix').hidden = $('mode').value !== 'name'; };
+
+function parseUuid(s) {
+  s = s.trim().toLowerCase();
+  if (!s) return null;
+  if (/^(0x)?[0-9a-f]{4}$/.test(s)) return full(parseInt(s.replace('0x', ''), 16));
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s)) return s;
+  return null;
+}
+
+$('connect').onclick = async () => {
+  const optionalServices = Object.keys(SERVICES);
+  const custom = parseUuid($('customUuid').value);
+  if ($('customUuid').value.trim() && !custom) return Lab.toast('Niepoprawne UUID');
+  if (custom) optionalServices.push(custom);
+  let opts;
+  const mode = $('mode').value;
+  if (mode === 'all') opts = { acceptAllDevices: true, optionalServices };
+  else if (mode === 'name') opts = { filters: [{ namePrefix: $('namePrefix').value || 'ESP' }], optionalServices };
+  else if (mode === 'hr') opts = { filters: [{ services: ['heart_rate'] }], optionalServices };
+  else opts = { filters: [{ services: [NUS] }], optionalServices };
+  try {
+    const d = await navigator.bluetooth.requestDevice(opts);
+    await connect(d);
+  } catch (e) { log(e.message, 'e'); }
+};
+$('known').onclick = async () => {
+  const list = await navigator.bluetooth.getDevices();
+  if (!list.length) return Lab.toast('Brak wcześniej sparowanych urządzeń');
+  log(`getDevices(): ${list.map(d => d.name || d.id).join(', ')}`);
+  await connect(list[0]);
+};
+$('disconnect').onclick = () => device?.gatt.disconnect();
+
+async function connect(d) {
+  device = d;
+  log(`Łączenie z ${d.name || d.id}…`);
+  d.addEventListener('gattserverdisconnected', () => {
+    log('Rozłączono', 'e');
+    $('dot').classList.remove('on'); $('devName').textContent = (d.name || 'urządzenie') + ' (rozłączone)';
+    $('disconnect').disabled = true;
+  });
+  server = await d.gatt.connect();
+  $('dot').classList.add('on');
+  $('devName').textContent = d.name || '(bez nazwy)';
+  $('devName').style.color = 'var(--text)';
+  $('disconnect').disabled = false;
+  log('Połączono, pobieram usługi…');
+  const services = await server.getPrimaryServices();
+  log(`Znaleziono ${services.length} usług(i)`);
+  const root = $('services');
+  root.innerHTML = '';
+  for (const s of services) {
+    const el = document.createElement('div');
+    el.className = 'box svc';
+    el.style.padding = '0';
+    el.innerHTML = `<header><b>${SERVICES[s.uuid] || 'Nieznana usługa'}</b><span class="uuid">${s.uuid}</span></header>`;
+    root.appendChild(el);
+    let chars = [];
+    try { chars = await s.getCharacteristics(); } catch (e) { log(`${s.uuid}: ${e.message}`, 'e'); }
+    for (const c of chars) el.appendChild(charRow(c));
+  }
+}
+
+function charRow(c) {
+  const p = c.properties;
+  const props = ['read', 'write', 'writeWithoutResponse', 'notify', 'indicate'].filter(k => p[k]);
+  const row = document.createElement('div');
+  row.className = 'chr';
+  row.innerHTML = `
+    <div class="top"><div><b style="font-size:13px">${CHARS[c.uuid] || 'Charakterystyka'}</b><div class="uuid">${c.uuid}</div></div>
+      <div class="props">${props.map(k => `<span class="chip">${k}</span>`).join('')}</div></div>
+    <div class="val">—</div>
+    <div class="actions"></div>`;
+  const val = row.querySelector('.val'), act = row.querySelector('.actions');
+  const show = v => {
+    const bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+    const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join(' ');
+    let text = '';
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); if (/[\x00-\x08\x0e-\x1f]/.test(text)) text = ''; } catch {}
+    let nice = null, num = null;
+    if (DECODE[c.uuid]) { try { [nice, num] = DECODE[c.uuid](v); } catch {} }
+    if (num == null && text) { const m = text.match(/-?\d+(\.\d+)?/); if (m) num = parseFloat(m[0]); }
+    if (num == null && bytes.length >= 1 && bytes.length <= 4 && !text) num = bytes.length === 1 ? bytes[0] : bytes.length === 2 ? v.getInt16(0, true) : v.getInt32(0, true);
+    val.innerHTML = '';
+    if (nice) { const n = document.createElement('span'); n.className = 'nice'; n.textContent = nice; val.appendChild(n); }
+    if (text) { const t = document.createElement('span'); t.textContent = `"${text}" `; val.appendChild(t); }
+    const h = document.createElement('span'); h.className = 'hex'; h.textContent = hex ? `[${hex}]` : '[pusto]'; val.appendChild(h);
+    return { num, label: nice || text || hex };
+  };
+  if (p.read) {
+    const b = button('Czytaj', async () => {
+      try { const v = await c.readValue(); const r = show(v); log(`read ${short(c)} → ${r.label}`); }
+      catch (e) { log(e.message, 'e'); }
+    });
+    act.appendChild(b);
+  }
+  if (p.notify || p.indicate) {
+    let on = false;
+    const handler = e => { const r = show(e.target.value); log(`notify ${short(c)} → ${r.label}`, 'n'); if (r.num != null && isFinite(r.num)) pushSample(c.uuid, CHARS[c.uuid] || short(c), r.num); };
+    const b = button('Notify', async () => {
+      try {
+        if (!on) { await c.startNotifications(); c.addEventListener('characteristicvaluechanged', handler); }
+        else { await c.stopNotifications(); c.removeEventListener('characteristicvaluechanged', handler); }
+        on = !on; b.classList.toggle('on', on); log(`${on ? 'start' : 'stop'} notifications ${short(c)}`);
+      } catch (e) { log(e.message, 'e'); }
+    });
+    act.appendChild(b);
+  }
+  if (p.write || p.writeWithoutResponse) {
+    const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'tekst albo hex: 0x01 02 ff';
+    const b = button('Zapisz', async () => {
+      const s = inp.value;
+      let data;
+      if (/^0x/i.test(s.trim())) data = new Uint8Array(s.trim().slice(2).split(/[\s,]+/).filter(Boolean).map(x => parseInt(x, 16)));
+      else data = new TextEncoder().encode(s + (c.uuid.startsWith('6e400002') ? '\n' : ''));
+      try {
+        if (p.write && c.writeValueWithResponse) await c.writeValueWithResponse(data);
+        else if (c.writeValueWithoutResponse) await c.writeValueWithoutResponse(data);
+        else await c.writeValue(data);
+        log(`write ${short(c)} ← ${s}`);
+      } catch (e) { log(e.message, 'e'); }
+    });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') b.click(); });
+    act.append(inp, b);
+  }
+  return row;
+}
+const short = c => CHARS[c.uuid] || c.uuid.slice(0, 8);
+function button(label, fn) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = label; b.onclick = fn; return b; }
+
+// ---------------- wykres ----------------
+const chart = $('chart'), cx = chart.getContext('2d');
+const series = new Map();
+const COLORS = ['#7dd3fc', '#f472b6', '#4ade80', '#fbbf24', '#a78bfa', '#fb7185'];
+function pushSample(key, label, v) {
+  if (!series.has(key)) series.set(key, { label, color: COLORS[series.size % COLORS.length], data: [] });
+  const s = series.get(key);
+  s.data.push(v); if (s.data.length > 240) s.data.shift();
+  s.last = v;
+}
+function drawChart() {
+  const dpr = devicePixelRatio || 1, w = chart.clientWidth, h = chart.clientHeight;
+  if (chart.width !== w * dpr) { chart.width = w * dpr; chart.height = h * dpr; }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, w, h);
+  cx.strokeStyle = 'rgba(255,255,255,.06)'; cx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { cx.beginPath(); cx.moveTo(0, h * i / 4 + .5); cx.lineTo(w, h * i / 4 + .5); cx.stroke(); }
+  for (const s of series.values()) {
+    if (s.data.length < 2) continue;
+    let mn = Math.min(...s.data), mx = Math.max(...s.data);
+    if (mx - mn < 1e-6) { mn -= 1; mx += 1; }
+    cx.strokeStyle = s.color; cx.lineWidth = 2; cx.beginPath();
+    s.data.forEach((v, i) => { const x = i / 239 * w, y = h - 8 - (v - mn) / (mx - mn) * (h - 16); i ? cx.lineTo(x, y) : cx.moveTo(x, y); });
+    cx.stroke();
+  }
+  if (series.size) $('legend').innerHTML = [...series.values()].map(s => `<span><i style="background:${s.color}"></i>${s.label}: <b style="color:var(--text)">${+s.last.toFixed(2)}</b></span>`).join('');
+  requestAnimationFrame(drawChart);
+}
+requestAnimationFrame(drawChart);
+log('Gotowe. Kliknij „Wybierz urządzenie”.');
+</script>
+</body>
+</html>

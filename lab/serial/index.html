@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Serial Plotter — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🔌</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  body { background: radial-gradient(ellipse at 80% 0%, #2a1608, #0b0b0e 55%); min-height: 100dvh; }
+  .page { max-width: 1240px; margin: 0 auto; padding: 70px 18px 30px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.4px; view-transition-name: lab-title; }
+  .lead { color: var(--dim); margin: 0 0 16px; max-width: 800px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid var(--border); }
+  .bar .sp { flex: 1; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dimmer); display: inline-block; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+  .box { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; min-height: 0; }
+  .box h2 { font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  canvas#plot { width: 100%; height: 420px; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 12px var(--mono); margin-top: 8px; }
+  .legend label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; color: var(--dim); }
+  .legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .legend b { color: var(--text); font-weight: 600; }
+  #term { font: 12px/1.45 var(--mono); height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-all; color: #d6d6de; background: rgba(0,0,0,.35); border-radius: 10px; padding: 8px 10px; }
+  #term .tx { color: #fbbf24; }
+  #term .sys { color: var(--dimmer); }
+  .send { display: flex; gap: 6px; margin-top: 8px; }
+  .send input { flex: 1; min-width: 0; font-family: var(--mono); }
+  .warn { margin-top: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(251,191,36,.35); background: rgba(251,191,36,.06); color: #fde68a; }
+  .hint { font-size: 12px; color: var(--dimmer); margin-top: 12px; }
+  .hint code { color: var(--dim); }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } canvas#plot, #term { height: 300px; } }
+</style>
+</head>
+<body>
+<a class="lab-back" href="../">← Lab</a>
+<div class="page">
+  <h1>Serial Plotter</h1>
+  <p class="lead">Monitor i ploter portu szeregowego przez <b>Web Serial API</b>. Podłącz ESP32, Arduino albo dowolny konwerter USB-UART. Liczby z każdej linii trafiają na wykres, tak jak w Serial Plotterze z Arduino IDE (formaty <code>1.2 3.4</code>, <code>1,2,3</code> i <code>temp:21.5,hum:40</code>).</p>
+
+  <div class="bar">
+    <span class="dot" id="dot"></span>
+    <button class="btn primary" id="connect">🔌 Połącz z portem</button>
+    <select id="baud">
+      <option>9600</option><option>19200</option><option>38400</option><option>57600</option><option selected>115200</option><option>230400</option><option>460800</option><option>921600</option>
+    </select>
+    <button class="btn" id="disconnect" disabled>Rozłącz</button>
+    <button class="btn" id="reset" disabled title="Reset ESP32 przez linie DTR/RTS (jak esptool)">⟲ Reset ESP32</button>
+    <button class="btn" id="demo">🎲 Symulacja</button>
+    <span class="sp"></span>
+    <span id="info" style="font:12px var(--mono);color:var(--dim)">nie połączono</span>
+  </div>
+  <div class="warn" id="unsupported" hidden>Web Serial działa w Chrome / Edge / Operze na komputerze (i w nowszym Chrome na Androidzie przez Bluetooth). Możesz jednak włączyć <b>Symulację</b>, żeby zobaczyć ploter w akcji.</div>
+
+  <div class="grid">
+    <div class="box">
+      <h2>Wykres <span><button class="btn" id="pause" style="padding:5px 9px">⏸ Pauza</button> <button class="btn" id="clearPlot" style="padding:5px 9px">Wyczyść</button></span></h2>
+      <canvas id="plot"></canvas>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="box">
+      <h2>Monitor <span><label style="font-size:11.5px;text-transform:none;letter-spacing:0"><input type="checkbox" id="autoscroll" checked> autoprzewijanie</label> <button class="btn" id="clearTerm" style="padding:5px 9px">Wyczyść</button></span></h2>
+      <div id="term"></div>
+      <div class="send">
+        <input type="text" id="tx" placeholder="Wyślij…" disabled>
+        <select id="eol"><option value="\n">LF</option><option value="\r\n">CRLF</option><option value="">brak</option></select>
+        <button class="btn" id="sendBtn" disabled>Wyślij</button>
+      </div>
+    </div>
+  </div>
+  <p class="hint">Przykładowy szkic: <code>Serial.printf("sin:%.2f,cos:%.2f\n", sin(t), cos(t));</code> · Port: <code>navigator.serial.requestPort()</code> → <code>port.open({ baudRate })</code> → <code>readable.pipeThrough(new TextDecoderStream())</code>.</p>
+</div>
+
+<script src="../common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const USB_NAMES = { 0x10c4: 'Silicon Labs CP210x', 0x1a86: 'WCH CH340/CH9102', 0x303a: 'Espressif (USB natywne)', 0x2341: 'Arduino', 0x2a03: 'Arduino', 0x0403: 'FTDI', 0x239a: 'Adafruit', 0x2e8a: 'Raspberry Pi (RP2040)', 0x1915: 'Nordic', 0x0483: 'STMicroelectronics' };
+let port = null, reader = null, writer = null, keepReading = false, demoTimer = null, paused = false;
+
+if (!('serial' in navigator)) { $('unsupported').hidden = false; $('connect').disabled = true; }
+
+// ---------------- terminal ----------------
+const term = $('term');
+function termAppend(text, cls) {
+  const s = document.createElement('span');
+  if (cls) s.className = cls;
+  s.textContent = text;
+  term.appendChild(s);
+  while (term.childNodes.length > 1500) term.firstChild.remove();
+  if ($('autoscroll').checked) term.scrollTop = term.scrollHeight;
+}
+$('clearTerm').onclick = () => term.textContent = '';
+
+// ---------------- parsowanie i wykres ----------------
+const COLORS = ['#38bdf8', '#f472b6', '#4ade80', '#fbbf24', '#a78bfa', '#fb7185', '#2dd4bf', '#f97316'];
+const series = new Map();
+const MAXPTS = 600;
+let lineBuf = '';
+function onText(chunk) {
+  termAppend(chunk);
+  lineBuf += chunk;
+  let i;
+  while ((i = lineBuf.indexOf('\n')) >= 0) {
+    const line = lineBuf.slice(0, i).replace(/\r$/, '');
+    lineBuf = lineBuf.slice(i + 1);
+    parseLine(line);
+  }
+  if (lineBuf.length > 4096) lineBuf = '';
+}
+function parseLine(line) {
+  if (paused) return;
+  const tokens = line.trim().split(/[\s,;\t]+/).filter(Boolean);
+  let idx = 0;
+  for (const tok of tokens) {
+    let label, val;
+    const m = tok.match(/^([^:=]+)[:=](-?[\d.]+(?:e-?\d+)?)$/i);
+    if (m) { label = m[1]; val = parseFloat(m[2]); }
+    else if (/^-?[\d.]+(?:e-?\d+)?$/i.test(tok)) { label = 'wartość ' + (++idx); val = parseFloat(tok); }
+    else continue;
+    if (!isFinite(val)) continue;
+    if (!series.has(label)) {
+      series.set(label, { color: COLORS[series.size % COLORS.length], data: [], on: true });
+      buildLegend();
+    }
+    const s = series.get(label);
+    s.data.push(val); if (s.data.length > MAXPTS) s.data.shift();
+  }
+}
+function buildLegend() {
+  const lg = $('legend'); lg.innerHTML = '';
+  for (const [name, s] of series) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" ${s.on ? 'checked' : ''}><i style="background:${s.color}"></i>${name}: <b></b>`;
+    l.querySelector('input').onchange = e => s.on = e.target.checked;
+    s.valEl = l.querySelector('b');
+    lg.appendChild(l);
+  }
+}
+$('pause').onclick = e => { paused = !paused; e.currentTarget.textContent = paused ? '▶ Wznów' : '⏸ Pauza'; };
+$('clearPlot').onclick = () => { series.clear(); buildLegend(); };
+
+const plot = $('plot'), pc = plot.getContext('2d');
+function drawPlot() {
+  const dpr = devicePixelRatio || 1, w = plot.clientWidth, h = plot.clientHeight;
+  if (plot.width !== Math.round(w * dpr) || plot.height !== Math.round(h * dpr)) { plot.width = Math.round(w * dpr); plot.height = Math.round(h * dpr); }
+  pc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  pc.clearRect(0, 0, w, h);
+  const vis = [...series.values()].filter(s => s.on && s.data.length);
+  let mn = Infinity, mx = -Infinity;
+  for (const s of vis) for (const v of s.data) { if (v < mn) mn = v; if (v > mx) mx = v; }
+  if (!vis.length) { mn = -1; mx = 1; }
+  if (mx - mn < 1e-9) { mn -= 1; mx += 1; }
+  const pad = (mx - mn) * 0.08; mn -= pad; mx += pad;
+  const L = 52, T = 8, B = 18, PW = w - L - 8, PH = h - T - B;
+  // siatka z opisami osi Y
+  pc.font = '11px ui-monospace, monospace'; pc.textAlign = 'right'; pc.textBaseline = 'middle';
+  const step = niceStep((mx - mn) / 5);
+  for (let v = Math.ceil(mn / step) * step; v <= mx; v += step) {
+    const y = T + PH - (v - mn) / (mx - mn) * PH;
+    pc.strokeStyle = Math.abs(v) < step / 2 ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.07)';
+    pc.beginPath(); pc.moveTo(L, Math.round(y) + .5); pc.lineTo(L + PW, Math.round(y) + .5); pc.stroke();
+    pc.fillStyle = '#7a7a86'; pc.fillText(+v.toFixed(6) + '', L - 6, y);
+  }
+  for (const s of vis) {
+    pc.strokeStyle = s.color; pc.lineWidth = 1.6; pc.beginPath();
+    const off = MAXPTS - s.data.length;
+    s.data.forEach((v, i) => { const x = L + (off + i) / (MAXPTS - 1) * PW, y = T + PH - (v - mn) / (mx - mn) * PH; i ? pc.lineTo(x, y) : pc.moveTo(x, y); });
+    pc.stroke();
+  }
+  for (const s of series.values()) if (s.valEl && s.data.length) s.valEl.textContent = +s.data[s.data.length - 1].toFixed(3);
+  requestAnimationFrame(drawPlot);
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p;
+}
+requestAnimationFrame(drawPlot);
+
+// ---------------- port szeregowy ----------------
+function setConnected(on) {
+  $('dot').classList.toggle('on', on);
+  $('connect').disabled = on || !('serial' in navigator);
+  $('disconnect').disabled = !on;
+  $('reset').disabled = !on || !!demoTimer;
+  $('tx').disabled = !on; $('sendBtn').disabled = !on;
+  $('baud').disabled = on;
+}
+$('connect').onclick = async () => {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: +$('baud').value, bufferSize: 8192 });
+    const info = port.getInfo();
+    const name = info.usbVendorId ? (USB_NAMES[info.usbVendorId] || 'USB') + ` ${hex4(info.usbVendorId)}:${hex4(info.usbProductId)}` : (info.bluetoothServiceClassId ? 'Bluetooth RFCOMM' : 'port szeregowy');
+    $('info').textContent = `${name} @ ${$('baud').value}`;
+    termAppend(`— połączono: ${name} —\n`, 'sys');
+    setConnected(true);
+    const enc = new TextEncoderStream();
+    enc.readable.pipeTo(port.writable).catch(() => {});
+    writer = enc.writable.getWriter();
+    readLoop();
+  } catch (e) { if (e.name !== 'NotFoundError') Lab.toast(e.message); }
+};
+const hex4 = n => n.toString(16).padStart(4, '0');
+async function readLoop() {
+  keepReading = true;
+  while (port && port.readable && keepReading) {
+    const dec = new TextDecoderStream();
+    const closed = port.readable.pipeTo(dec.writable).catch(() => {});
+    reader = dec.readable.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) onText(value);
+      }
+    } catch (e) { termAppend(`\n— błąd: ${e.message} —\n`, 'sys'); }
+    finally { reader.releaseLock(); }
+    await closed;
+  }
+}
+$('disconnect').onclick = async () => {
+  keepReading = false;
+  try { await reader?.cancel(); } catch {}
+  try { await writer?.close(); } catch {}
+  try { await port?.close(); } catch {}
+  port = null; setConnected(false); $('info').textContent = 'rozłączono';
+  termAppend('— rozłączono —\n', 'sys');
+};
+navigator.serial?.addEventListener('disconnect', e => { if (e.target === port) { termAppend('— urządzenie odłączone —\n', 'sys'); port = null; setConnected(false); } });
+
+// reset ESP32: RTS steruje EN, DTR steruje IO0 (schemat auto-resetu z esptool)
+$('reset').onclick = async () => {
+  if (!port) return;
+  try {
+    await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+    await new Promise(r => setTimeout(r, 120));
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+    termAppend('— reset (RTS) —\n', 'sys');
+  } catch (e) { Lab.toast('setSignals: ' + e.message); }
+};
+
+async function send() {
+  const s = $('tx').value + $('eol').value.replace('\\n', '\n').replace('\\r', '\r');
+  if (demoTimer) { termAppend('> ' + s.trimEnd() + '\n', 'tx'); $('tx').value = ''; return; }
+  if (!writer) return;
+  await writer.write(s);
+  termAppend('> ' + s.trimEnd() + '\n', 'tx');
+  $('tx').value = '';
+}
+$('sendBtn').onclick = send;
+$('tx').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+// ---------------- symulacja (bez urządzenia) ----------------
+$('demo').onclick = e => {
+  if (demoTimer) {
+    clearInterval(demoTimer); demoTimer = null; e.currentTarget.classList.remove('on');
+    if (!port) setConnected(false);
+    return;
+  }
+  e.currentTarget.classList.add('on');
+  $('tx').disabled = false; $('sendBtn').disabled = false;
+  let t = 0;
+  termAppend('— symulowane ESP32: sin, cos, szum i "temperatura" —\n', 'sys');
+  demoTimer = setInterval(() => {
+    t += 0.05;
+    const temp = 22 + Math.sin(t / 7) * 3 + Math.random() * 0.3;
+    onText(`sin:${Math.sin(t).toFixed(3)},cos:${(Math.cos(t * 1.3) * 0.7).toFixed(3)},noise:${(Math.random() - .5).toFixed(3)},temp/10:${(temp / 10).toFixed(3)}\n`);
+  }, 30);
+};
+</script>
+</body>
+</html>

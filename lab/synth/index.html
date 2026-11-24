@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Syntezator MIDI — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🎹</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  body { background: radial-gradient(ellipse at 50% -10%, #2a0f2e, #0b0b0e 60%); min-height: 100dvh; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 70px 18px 30px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.4px; view-transition-name: lab-title; }
+  .lead { color: var(--dim); margin: 0 0 16px; max-width: 760px; }
+  .scope { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); background: #07070b; }
+  canvas#scope { width: 100%; height: 220px; display: block; }
+  .notes { position: absolute; left: 14px; top: 10px; font: 700 15px var(--mono); color: #f9a8d4; letter-spacing: .04em; }
+  .midiled { position: absolute; right: 14px; top: 12px; font: 11.5px var(--mono); color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .midiled i { width: 8px; height: 8px; border-radius: 50%; background: #333; transition: background .05s; }
+  .midiled i.on { background: #f472b6; box-shadow: 0 0 8px #f472b6; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 14px 0; }
+  .grp { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; }
+  .grp h3 { margin: 2px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .grp .row { margin: 6px 0; }
+  .grp .row label { min-width: 72px; }
+  .keys { position: relative; height: 190px; user-select: none; -webkit-user-select: none; touch-action: none; display: flex; border-radius: 0 0 12px 12px; overflow: hidden; }
+  .key { flex: 1; position: relative; background: linear-gradient(#f4f4f6, #d9d9de); border-right: 1px solid #999; border-radius: 0 0 8px 8px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px; font: 11px var(--mono); color: #777; }
+  .key.down { background: linear-gradient(#f9a8d4, #ec4899); color: #fff; }
+  .key.black { position: absolute; top: 0; height: 60%; background: linear-gradient(#333, #0d0d0f); border: 1px solid #000; z-index: 2; color: #aaa; border-radius: 0 0 6px 6px; padding-bottom: 6px; }
+  .key.black.down { background: linear-gradient(#be185d, #831843); }
+  .top { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .top .sp { flex: 1; }
+  .hint { color: var(--dimmer); font-size: 12px; margin-top: 10px; }
+  kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--dim); }
+</style>
+</head>
+<body>
+<a class="lab-back" href="../">← Lab</a>
+<div class="page">
+  <h1>Syntezator MIDI</h1>
+  <p class="lead">Polifoniczny syntezator subtraktywny zbudowany z węzłów <b>Web Audio</b>: dwa rozstrojone oscylatory na głos, obwiednia ADSR, filtr rezonansowy i delay ze sprzężeniem. Sterujesz klawiaturą komputera, dotykiem (multi-touch i glissando) albo kontrolerem przez <b>Web MIDI</b>.</p>
+
+  <div class="top">
+    <button class="btn primary" id="midiBtn">🎛️ Podłącz MIDI</button>
+    <span id="midiInfo" style="font:12px var(--mono);color:var(--dim)"></span>
+    <span class="sp"></span>
+    <button class="btn" id="octDown">◀ oktawa</button>
+    <span id="octLabel" style="font:12px var(--mono)">C4</span>
+    <button class="btn" id="octUp">oktawa ▶</button>
+  </div>
+
+  <div class="scope">
+    <canvas id="scope"></canvas>
+    <div class="notes" id="notes"></div>
+    <div class="midiled"><i id="led"></i> MIDI</div>
+  </div>
+  <div class="keys" id="keys"></div>
+
+  <div class="controls">
+    <div class="grp"><h3>Oscylatory</h3>
+      <div class="row"><label>Fala</label><select id="wave"><option value="sawtooth">piła</option><option value="square">prostokąt</option><option value="triangle">trójkąt</option><option value="sine">sinus</option></select></div>
+      <div class="row"><label>Rozstrojenie</label><input type="range" id="detune" min="0" max="50" value="12"><output></output></div>
+      <div class="row"><label>Sub-oktawa</label><input type="range" id="sub" min="0" max="100" value="30"><output></output></div>
+    </div>
+    <div class="grp"><h3>Obwiednia ADSR</h3>
+      <div class="row"><label>Attack</label><input type="range" id="att" min="1" max="2000" value="10"><output></output></div>
+      <div class="row"><label>Decay</label><input type="range" id="dec" min="10" max="2000" value="300"><output></output></div>
+      <div class="row"><label>Sustain</label><input type="range" id="sus" min="0" max="100" value="60"><output></output></div>
+      <div class="row"><label>Release</label><input type="range" id="rel" min="10" max="4000" value="400"><output></output></div>
+    </div>
+    <div class="grp"><h3>Filtr</h3>
+      <div class="row"><label>Odcięcie</label><input type="range" id="cut" min="0" max="100" value="62"><output></output></div>
+      <div class="row"><label>Rezonans</label><input type="range" id="res" min="0" max="25" value="6"><output></output></div>
+      <div class="row"><label>Env → filtr</label><input type="range" id="fenv" min="0" max="100" value="40"><output></output></div>
+    </div>
+    <div class="grp"><h3>Delay i wyjście</h3>
+      <div class="row"><label>Czas</label><input type="range" id="dtime" min="20" max="1000" value="330"><output></output></div>
+      <div class="row"><label>Sprzężenie</label><input type="range" id="dfb" min="0" max="90" value="35"><output></output></div>
+      <div class="row"><label>Mix</label><input type="range" id="dmix" min="0" max="100" value="25"><output></output></div>
+      <div class="row"><label>Głośność</label><input type="range" id="vol" min="0" max="100" value="55"><output></output></div>
+    </div>
+  </div>
+  <p class="hint">Klawiatura: <kbd>A</kbd><kbd>W</kbd><kbd>S</kbd><kbd>E</kbd><kbd>D</kbd><kbd>F</kbd><kbd>T</kbd><kbd>G</kbd><kbd>Y</kbd><kbd>H</kbd><kbd>U</kbd><kbd>J</kbd><kbd>K</kbd><kbd>O</kbd><kbd>L</kbd><kbd>P</kbd> to nuty, <kbd>Z</kbd>/<kbd>X</kbd> zmieniają oktawę. MIDI: CC1 i CC74 sterują filtrem, pitch bend działa.</p>
+</div>
+
+<script src="../common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const P = {};
+document.querySelectorAll('.controls input[type=range]').forEach(el => {
+  const out = el.nextElementSibling;
+  const upd = () => { P[el.id] = +el.value; out.textContent = el.value; applyGlobal(); };
+  el.addEventListener('input', upd);
+  P[el.id] = +el.value; out.textContent = el.value;
+});
+$('wave').onchange = () => { P.wave = $('wave').value; };
+P.wave = $('wave').value;
+
+// ---------------- graf audio ----------------
+let ac, filter, dly, fb, wet, dry, master, analyser, bend = 0;
+function initAudio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  filter = ac.createBiquadFilter(); filter.type = 'lowpass';
+  dly = ac.createDelay(2); fb = ac.createGain(); wet = ac.createGain(); dry = ac.createGain();
+  master = ac.createGain(); analyser = ac.createAnalyser(); analyser.fftSize = 2048;
+  const comp = ac.createDynamicsCompressor();
+  filter.connect(dry).connect(master);
+  filter.connect(dly); dly.connect(fb).connect(dly); dly.connect(wet).connect(master);
+  master.connect(comp).connect(analyser).connect(ac.destination);
+  applyGlobal();
+}
+const cutoffHz = v => 40 * Math.pow(18000 / 40, v / 100);
+function applyGlobal() {
+  if (!ac) return;
+  const t = ac.currentTime;
+  filter.frequency.setTargetAtTime(cutoffHz(P.cut), t, 0.02);
+  filter.Q.setTargetAtTime(P.res, t, 0.02);
+  dly.delayTime.setTargetAtTime(P.dtime / 1000, t, 0.05);
+  fb.gain.setTargetAtTime(P.dfb / 100, t, 0.02);
+  wet.gain.setTargetAtTime(P.dmix / 100, t, 0.02);
+  dry.gain.setTargetAtTime(1 - P.dmix / 250, t, 0.02);
+  master.gain.setTargetAtTime(P.vol / 100 * 0.6, t, 0.02);
+}
+
+const voices = new Map(); // midi note -> voice
+const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+function noteOn(n, vel = 100) {
+  initAudio();
+  if (voices.has(n)) noteOff(n, true);
+  const t = ac.currentTime, f = mtof(n);
+  const g = ac.createGain(); g.gain.value = 0;
+  const amp = (vel / 127) * 0.32;
+  const oscs = [-1, 1].map(s => { const o = ac.createOscillator(); o.type = P.wave; o.frequency.value = f; o.detune.value = s * P.detune + bend; o.connect(g); return o; });
+  const sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = f / 2; sub.detune.value = bend;
+  const sg = ac.createGain(); sg.gain.value = P.sub / 100 * 1.4; sub.connect(sg).connect(g);
+  oscs.push(sub);
+  g.connect(filter);
+  const A = P.att / 1000, D = P.dec / 1000, S = P.sus / 100;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(amp, t + A);
+  g.gain.setTargetAtTime(amp * S, t + A, D / 3);
+  // obwiednia filtra: chwilowe otwarcie odcięcia
+  if (P.fenv > 0) {
+    const base = cutoffHz(P.cut), peak = Math.min(18000, base * (1 + P.fenv / 12));
+    filter.frequency.cancelScheduledValues(t);
+    filter.frequency.setValueAtTime(filter.frequency.value, t);
+    filter.frequency.linearRampToValueAtTime(peak, t + Math.max(0.005, A));
+    filter.frequency.setTargetAtTime(base, t + A, D / 2);
+  }
+  oscs.forEach(o => o.start(t));
+  voices.set(n, { g, oscs, amp });
+  keyVisual(n, true);
+  updateNotes();
+}
+function noteOff(n, fast = false) {
+  const v = voices.get(n);
+  if (!v) return;
+  voices.delete(n);
+  const t = ac.currentTime, R = fast ? 0.015 : P.rel / 1000;
+  v.g.gain.cancelScheduledValues(t);
+  v.g.gain.setValueAtTime(v.g.gain.value, t);
+  v.g.gain.setTargetAtTime(0, t, R / 4);
+  v.oscs.forEach(o => o.stop(t + R * 1.5 + 0.05));
+  keyVisual(n, false);
+  updateNotes();
+}
+const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const nname = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
+function updateNotes() { $('notes').textContent = [...voices.keys()].sort((a, b) => a - b).map(nname).join('  '); }
+
+// ---------------- klawiatura ekranowa ----------------
+let base = 60; // C4
+const keysEl = $('keys');
+const keyEls = new Map();
+function buildKeys() {
+  keysEl.innerHTML = ''; keyEls.clear();
+  const octaves = innerWidth < 600 ? 1 : 2;
+  const whites = [], count = octaves * 12 + 1;
+  for (let i = 0; i < count; i++) if (![1, 3, 6, 8, 10].includes(i % 12)) whites.push(i);
+  const ww = 100 / whites.length;
+  for (let i = 0; i < count; i++) {
+    const n = base + i, black = [1, 3, 6, 8, 10].includes(i % 12);
+    const k = document.createElement('div');
+    k.className = 'key' + (black ? ' black' : '');
+    k.dataset.note = n;
+    if (black) { const wi = whites.filter(w => w < i).length; k.style.left = `calc(${wi * ww}% - ${ww * 0.3}%)`; k.style.width = ww * 0.6 + '%'; }
+    else if (i % 12 === 0) k.textContent = nname(n);
+    keysEl.appendChild(k);
+    keyEls.set(n, k);
+  }
+  $('octLabel').textContent = nname(base);
+}
+function keyVisual(n, on) { keyEls.get(n)?.classList.toggle('down', on); }
+const touchNotes = new Map(); // pointerId -> note
+function noteAt(x, y) { const el = document.elementFromPoint(x, y); return el && el.dataset && el.dataset.note ? +el.dataset.note : null; }
+keysEl.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  keysEl.setPointerCapture(e.pointerId);
+  const n = noteAt(e.clientX, e.clientY);
+  if (n != null) { touchNotes.set(e.pointerId, n); noteOn(n, 70 + Math.round((e.pressure || 0.5) * 57)); }
+});
+keysEl.addEventListener('pointermove', e => {
+  if (!touchNotes.has(e.pointerId)) return;
+  const n = noteAt(e.clientX, e.clientY), prev = touchNotes.get(e.pointerId);
+  if (n !== prev) { if (prev != null) noteOff(prev); if (n != null) noteOn(n, 90); touchNotes.set(e.pointerId, n); }
+});
+const tEnd = e => { const n = touchNotes.get(e.pointerId); if (n != null) noteOff(n); touchNotes.delete(e.pointerId); };
+keysEl.addEventListener('pointerup', tEnd); keysEl.addEventListener('pointercancel', tEnd);
+addEventListener('resize', buildKeys);
+const shiftOct = d => { base = Math.max(24, Math.min(96, base + d * 12)); buildKeys(); };
+$('octDown').onclick = () => shiftOct(-1); $('octUp').onclick = () => shiftOct(1);
+buildKeys();
+
+// klawiatura komputera
+const KMAP = 'awsedftgyhujkolp;';
+const held = new Map();
+addEventListener('keydown', e => {
+  if (e.repeat || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.ctrlKey || e.metaKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z') return shiftOct(-1);
+  if (k === 'x') return shiftOct(1);
+  const i = KMAP.indexOf(k);
+  if (i >= 0) { const n = base + i; held.set(k, n); noteOn(n, 100); }
+});
+addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (held.has(k)) { noteOff(held.get(k)); held.delete(k); } });
+
+// ---------------- Web MIDI ----------------
+let ledT = 0;
+$('midiBtn').onclick = async () => {
+  if (!navigator.requestMIDIAccess) return Lab.toast('Web MIDI niedostępne w tej przeglądarce (Chrome, Edge, Firefox, Opera)');
+  try {
+    const access = await navigator.requestMIDIAccess();
+    const bind = () => {
+      const ins = [...access.inputs.values()];
+      ins.forEach(i => i.onmidimessage = onMidi);
+      $('midiInfo').textContent = ins.length ? '🎹 ' + ins.map(i => i.name).join(', ') : 'brak urządzeń MIDI – podłącz kontroler';
+    };
+    access.onstatechange = bind;
+    bind();
+    initAudio();
+    $('midiBtn').classList.add('on');
+  } catch (e) { Lab.toast('Brak zgody na MIDI'); }
+};
+function onMidi(m) {
+  const [st, d1, d2] = m.data, cmd = st & 0xf0;
+  $('led').classList.add('on'); clearTimeout(ledT); ledT = setTimeout(() => $('led').classList.remove('on'), 60);
+  if (cmd === 0x90 && d2 > 0) noteOn(d1, d2);
+  else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) noteOff(d1);
+  else if (cmd === 0xb0 && (d1 === 1 || d1 === 74)) { $('cut').value = Math.round(d2 / 127 * 100); $('cut').dispatchEvent(new Event('input')); }
+  else if (cmd === 0xb0 && d1 === 71) { $('res').value = Math.round(d2 / 127 * 25); $('res').dispatchEvent(new Event('input')); }
+  else if (cmd === 0xe0) {
+    bend = (((d2 << 7) | d1) - 8192) / 8192 * 200;
+    for (const v of voices.values()) v.oscs.forEach((o, i) => o.detune.setTargetAtTime((i === 2 ? 0 : (i ? 1 : -1) * P.detune) + bend, ac.currentTime, 0.01));
+  }
+}
+
+// ---------------- oscyloskop + widmo ----------------
+const cv = $('scope'), cx = cv.getContext('2d');
+let td, fd;
+function draw() {
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.fillStyle = 'rgba(7,7,11,.45)'; cx.fillRect(0, 0, w, h);
+  if (analyser) {
+    td ??= new Float32Array(analyser.fftSize); fd ??= new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(fd);
+    const bars = 96;
+    for (let i = 0; i < bars; i++) {
+      const idx = Math.floor(Math.pow(i / bars, 2) * fd.length * 0.6);
+      const v = fd[idx] / 255, bw = w / bars;
+      cx.fillStyle = `hsla(${320 - i * 1.6},85%,60%,${0.25 + v * 0.5})`;
+      cx.fillRect(i * bw + 1, h - v * h * 0.55, bw - 2, v * h * 0.55);
+    }
+    analyser.getFloatTimeDomainData(td);
+    // wyzwalanie na zboczu narastającym, żeby przebieg stał w miejscu
+    let s = 0; for (let i = 1; i < td.length / 2; i++) if (td[i - 1] < 0 && td[i] >= 0) { s = i; break; }
+    cx.strokeStyle = '#f9a8d4'; cx.lineWidth = 2; cx.shadowColor = '#ec4899'; cx.shadowBlur = 10;
+    cx.beginPath();
+    const N = Math.min(1024, td.length - s);
+    for (let i = 0; i < N; i++) { const x = i / N * w, y = h * 0.45 - td[s + i] * h * 0.9; i ? cx.lineTo(x, y) : cx.moveTo(x, y); }
+    cx.stroke(); cx.shadowBlur = 0;
+  } else {
+    cx.fillStyle = '#62626e'; cx.font = '13px system-ui'; cx.textAlign = 'center';
+    cx.fillText('Zagraj nutę, żeby uruchomić dźwięk', w / 2, h / 2);
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Liquid Glass — Web Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>💧</text></svg>">
+<link rel="stylesheet" href="../common.css">
+<style>
+  canvas.stage { cursor: grab; }
+  canvas.stage.dragging { cursor: grabbing; }
+  .hint { font-size: 11.5px; color: var(--dimmer); margin-top: 10px; }
+</style>
+</head>
+<body class="fullscreen">
+<canvas class="stage" id="c"></canvas>
+<a class="lab-back" href="../">← Lab</a>
+
+<aside class="lab-panel">
+  <header>
+    <div><h1>Liquid Glass</h1></div>
+    <button class="toggle" aria-label="Zwiń panel">–</button>
+  </header>
+  <p>Każdy piksel liczy shader WGSL: pole odległości z gładkim łączeniem kształtów, refrakcja jak w soczewce, rozszczepienie kolorów i rozmycie z mipmap. Odblaski przechylają się razem z telefonem.</p>
+  <div class="apis"><span class="chip">WebGPU</span><span class="chip">WGSL</span><span class="chip">SDF</span><span class="chip">DeviceOrientation</span></div>
+  <div class="row"><label>Refrakcja</label><input type="range" id="refr" min="0" max="100" value="45"><output></output></div>
+  <div class="row"><label>Matowienie</label><input type="range" id="blur" min="0" max="100" value="12"><output></output></div>
+  <div class="row"><label>Aberracja</label><input type="range" id="chroma" min="0" max="100" value="35"><output></output></div>
+  <div class="row"><label>Zlewanie</label><input type="range" id="smooth" min="0" max="100" value="45"><output></output></div>
+  <div class="row"><label>Krawędź</label><input type="range" id="bevel" min="5" max="100" value="40"><output></output></div>
+  <div class="row">
+    <button class="btn" id="add">+ kropla</button>
+    <button class="btn" id="reset">Reset</button>
+    <button class="btn on" id="auto">Auto-przewijanie</button>
+  </div>
+  <div class="row">
+    <button class="btn" id="cam">📷 Kamera jako tło</button>
+    <button class="btn" id="gyro" hidden>🧭 Włącz żyroskop</button>
+    <button class="btn" id="drip">Krople spływają</button>
+  </div>
+  <div class="hint">Przeciągaj szkło, a tło przewijaj palcem lub kółkiem myszy.</div>
+</aside>
+
+<script src="../common.js"></script>
+<script>
+(async () => {
+const canvas = document.getElementById('c');
+const g = await Lab.gpu(canvas);
+if (!g) return;
+const { device, context, format } = g;
+
+// ---------------- shadery ----------------
+const glassWGSL = /* wgsl */`
+struct Shape { geo: vec4f, ext: vec4f };
+struct U {
+  res: vec2f, time: f32, count: f32,
+  light: vec2f, refr: f32, blur: f32,
+  chroma: f32, smoothK: f32, bevel: f32, dpr: f32,
+  bgScale: vec2f, bgOffset: vec2f,
+  shapes: array<Shape, 8>,
+};
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var bg: texture_2d<f32>;
+
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+}
+
+fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 {
+  let q = abs(p) - b + vec2f(r);
+  return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+fn smin(a: f32, b: f32, k: f32) -> f32 {
+  let h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+fn scene(p: vec2f) -> f32 {
+  var d = 1e5;
+  let n = u32(u.count);
+  for (var i = 0u; i < n; i++) {
+    let s = u.shapes[i];
+    let r = min(s.ext.x, min(s.geo.z, s.geo.w));
+    d = smin(d, sdRoundBox(p - s.geo.xy, s.geo.zw, r), u.smoothK);
+  }
+  return d;
+}
+fn bgAt(px: vec2f, lod: f32) -> vec3f {
+  return textureSampleLevel(bg, samp, px * u.bgScale + u.bgOffset, lod).rgb;
+}
+// rozmycie: kilka próbek z poziomu mipmapy ≈ gładki filtr gaussa
+fn bgBlur(px: vec2f, radius: f32) -> vec3f {
+  if (radius < 0.75) { return bgAt(px, 0.0); }
+  let lod = log2(radius) - 0.5;
+  let o = radius * 0.5;
+  var c = bgAt(px, lod) * 0.36;
+  c += bgAt(px + vec2f( o,  o), lod) * 0.16;
+  c += bgAt(px + vec2f(-o,  o), lod) * 0.16;
+  c += bgAt(px + vec2f( o, -o), lod) * 0.16;
+  c += bgAt(px + vec2f(-o, -o), lod) * 0.16;
+  return c;
+}
+
+@fragment fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let p = fc.xy;
+  let d = scene(p);
+  var col = bgAt(p, 0.0);
+
+  // miękki cień pod szkłem, przesunięty od światła
+  let sh = scene(p + u.light * 14.0 * u.dpr);
+  let shadow = (1.0 - smoothstep(-6.0 * u.dpr, 34.0 * u.dpr, sh)) * 0.32;
+  col *= 1.0 - shadow * step(0.0, d);
+
+  if (d < 1.0) {
+    // normalna 2D z gradientu pola odległości (skierowana na zewnątrz)
+    let e = 1.0;
+    let gr = vec2f(scene(p + vec2f(e, 0.0)) - scene(p - vec2f(e, 0.0)),
+                   scene(p + vec2f(0.0, e)) - scene(p - vec2f(0.0, e)));
+    let gl = length(gr);
+    let n2 = select(vec2f(0.0), gr / gl, gl > 1e-5);
+
+    // profil krawędzi: ćwiartka okręgu o szerokości "bevel"
+    let t = clamp(-d / u.bevel, 0.0, 1.0);
+    let x = 1.0 - t;
+    let h = sqrt(max(1.0 - x * x, 0.0));
+    let slope = x / max(h, 0.08);
+    let N = normalize(vec3f(n2 * slope, 1.0));
+
+    // refrakcja promienia patrzącego prosto w ekran (n = 1.5)
+    let R = refract(vec3f(0.0, 0.0, -1.0), N, 1.0 / 1.5);
+    let off = R.xy * u.refr * (0.35 + 0.65 * x);
+    let blurR = u.blur * (0.6 + 0.4 * h);
+    let ca = u.chroma * (0.25 + x);
+    var gc: vec3f;
+    gc.r = bgBlur(p + off * (1.0 + ca), blurR).r;
+    gc.g = bgBlur(p + off, blurR).g;
+    gc.b = bgBlur(p + off * (1.0 - ca), blurR).b;
+
+    // lekkie podbicie nasycenia i jasności jak w szkle
+    let l = dot(gc, vec3f(0.299, 0.587, 0.114));
+    gc = mix(vec3f(l), gc, 1.18) * 1.04 + 0.025;
+
+    // odblaski: strona od światła + słabszy refleks po przeciwnej
+    let L2 = normalize(u.light + vec2f(1e-4));
+    let edge = pow(x, 2.6);
+    let rim = pow(max(dot(n2, L2), 0.0), 2.0) * edge * 0.9
+            + pow(max(dot(n2, -L2), 0.0), 3.0) * edge * 0.35;
+    let H = normalize(vec3f(L2 * 0.7, 1.0) + vec3f(0.0, 0.0, 1.0));
+    let glint = pow(max(dot(N, H), 0.0), 90.0) * 0.6 * step(0.02, x);
+    let fres = pow(x, 5.0) * 0.18;
+    let line = smoothstep(1.6 * u.dpr, 0.0, abs(d + 0.8 * u.dpr)) * 0.28;
+    gc += vec3f(rim + glint + fres + line);
+
+    let a = clamp(0.5 - d, 0.0, 1.0);
+    col = mix(col, gc, a);
+  }
+  return vec4f(col, 1.0);
+}`;
+
+const mipWGSL = /* wgsl */`
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var src: texture_2d<f32>;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  var o: VO; o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0); o.uv = vec2f(p.x, 1.0 - p.y); return o;
+}
+@fragment fn fs(i: VO) -> @location(0) vec4f { return textureSampleLevel(src, samp, i.uv, 0.0); }`;
+
+const glassModule = device.createShaderModule({ code: glassWGSL });
+const mipModule = device.createShaderModule({ code: mipWGSL });
+
+const pipeline = device.createRenderPipeline({
+  layout: 'auto',
+  vertex: { module: glassModule, entryPoint: 'vs' },
+  fragment: { module: glassModule, entryPoint: 'fs', targets: [{ format }] },
+  primitive: { topology: 'triangle-list' },
+});
+const mipPipeline = device.createRenderPipeline({
+  layout: 'auto',
+  vertex: { module: mipModule, entryPoint: 'vs' },
+  fragment: { module: mipModule, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+  primitive: { topology: 'triangle-list' },
+});
+
+const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
+const mipSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+const uBuf = device.createBuffer({ size: 320, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+const uData = new Float32Array(80);
+
+function makeTexture(w, h) {
+  const levels = Math.min(9, Math.floor(Math.log2(Math.max(w, h))) + 1);
+  return device.createTexture({
+    size: [w, h], format: 'rgba8unorm', mipLevelCount: levels,
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+}
+function generateMips(tex, enc) {
+  for (let lvl = 1; lvl < tex.mipLevelCount; lvl++) {
+    const bgp = device.createBindGroup({ layout: mipPipeline.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: mipSampler },
+      { binding: 1, resource: tex.createView({ baseMipLevel: lvl - 1, mipLevelCount: 1 }) },
+    ]});
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView({ baseMipLevel: lvl, mipLevelCount: 1 }), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+    pass.setPipeline(mipPipeline); pass.setBindGroup(0, bgp); pass.draw(3); pass.end();
+  }
+}
+
+// ---------------- tło rysowane na canvasie 2D ----------------
+const SECTIONS = 3;
+let bgTex = null, bindGroup = null, cssW = 0, cssH = 0;
+
+function drawBackground(w, h, s) {
+  // w, h – rozmiar jednej "strony" w CSS px; s – skala do pikseli tekstury
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * s); c.height = Math.round(h * SECTIONS * s);
+  const x = c.getContext('2d');
+  x.scale(s, s);
+  const H = h * SECTIONS, m = Math.min(w, h);
+  x.fillStyle = '#0f0f17'; x.fillRect(0, 0, w, H);
+
+  const blob = (cx, cy, r, col) => { const gr = x.createRadialGradient(cx, cy, 0, cx, cy, r); gr.addColorStop(0, col); gr.addColorStop(1, 'transparent'); x.fillStyle = gr; x.fillRect(cx - r, cy - r, r * 2, r * 2); };
+  blob(w * .2, h * .35, m * .7, 'rgba(110,90,255,.75)');
+  blob(w * .85, h * .55, m * .65, 'rgba(255,80,150,.6)');
+  blob(w * .55, h * 1.4, m * .8, 'rgba(0,190,255,.55)');
+  blob(w * .15, h * 2.2, m * .7, 'rgba(255,170,60,.55)');
+  blob(w * .9, h * 2.5, m * .6, 'rgba(60,220,140,.5)');
+
+  // siatka
+  x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = 1;
+  const gs = Math.max(28, m / 18);
+  x.beginPath();
+  for (let gx = 0; gx <= w; gx += gs) { x.moveTo(gx + .5, 0); x.lineTo(gx + .5, H); }
+  for (let gy = 0; gy <= H; gy += gs) { x.moveTo(0, gy + .5); x.lineTo(w, gy + .5); }
+  x.stroke();
+
+  // sekcja 1: wielki napis + paski
+  x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.textAlign = 'center';
+  const big = Math.min(w / 4.2, h / 4.5);
+  x.font = `800 ${big}px system-ui, "Segoe UI", sans-serif`;
+  x.fillText('Liquid', w / 2, h * .36);
+  x.fillText('Glass', w / 2, h * .36 + big * .95);
+  x.font = `500 ${big * .16}px system-ui, sans-serif`; x.fillStyle = 'rgba(255,255,255,.75)';
+  x.fillText('WebGPU · WGSL · signed distance fields', w / 2, h * .36 + big * 1.65);
+  const cols = ['#ff5f8f', '#ffc65f', '#5fe3ff', '#8b7bff', '#5fff9c'];
+  const sw = w / 30;
+  for (let i = 0; i < 30; i++) { x.fillStyle = cols[i % cols.length]; x.fillRect(i * sw, h * .82, sw * .55, h * .1); }
+
+  // sekcja 2: szachownica + emoji
+  const cy0 = h * 1.12, cs = m / 12;
+  for (let r = 0; r < 7; r++) for (let q = 0; q < Math.ceil(w / cs); q++) {
+    x.fillStyle = (r + q) % 2 ? 'rgba(255,255,255,.9)' : 'rgba(20,20,30,.9)';
+    x.fillRect(q * cs, cy0 + r * cs, cs, cs);
+  }
+  x.font = `${m / 7}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+  const em = ['🍋', '🫧', '🌈', '🪩', '🧊', '🦋', '🍓', '🌊'];
+  em.forEach((e, i) => x.fillText(e, (i + .5) * w / em.length, h * 1.8 + Math.sin(i) * h * .05));
+
+  // sekcja 3: akapity tekstu i koła
+  x.textAlign = 'left';
+  const fs = Math.max(15, m / 26);
+  x.font = `600 ${fs * 2}px system-ui, sans-serif`; x.fillStyle = '#fff';
+  x.fillText('Refrakcja w praktyce', w * .08, h * 2.15);
+  x.font = `400 ${fs}px system-ui, sans-serif`; x.fillStyle = 'rgba(255,255,255,.82)';
+  const lorem = 'Każdy kształt to funkcja odległości. Shader łączy je funkcją smooth-min, więc krople zlewają się jak rtęć. Normalna powierzchni pochodzi z gradientu pola, a promień załamuje się według prawa Snella. Kanały R, G i B łamią się trochę inaczej, stąd tęczowe krawędzie. Matowienie bierze próbki z mipmap tekstury tła.';
+  const words = lorem.split(' '); let line = '', ly = h * 2.15 + fs * 2.4;
+  for (const wd of words) {
+    if (x.measureText(line + wd).width > w * .84) { x.fillText(line, w * .08, ly); line = ''; ly += fs * 1.55; }
+    line += wd + ' ';
+  }
+  x.fillText(line, w * .08, ly);
+  for (let i = 0; i < 6; i++) {
+    x.beginPath(); x.arc(w * (.12 + i * .155), h * 2.78, m * .055, 0, Math.PI * 2);
+    x.fillStyle = cols[i % cols.length]; x.fill();
+  }
+  return c;
+}
+
+function rebuildBackground() {
+  cssW = canvas.clientWidth; cssH = canvas.clientHeight;
+  const maxDim = device.limits.maxTextureDimension2D;
+  const s = Math.min(Math.min(devicePixelRatio, 2), maxDim / (cssH * SECTIONS), maxDim / cssW);
+  const src = drawBackground(cssW, cssH, s);
+  const tex = makeTexture(src.width, src.height);
+  device.queue.copyExternalImageToTexture({ source: src }, { texture: tex }, [src.width, src.height]);
+  const enc = device.createCommandEncoder(); generateMips(tex, enc); device.queue.submit([enc.finish()]);
+  if (bgTex) bgTex.destroy();
+  bgTex = tex;
+  if (!camOn) setBind(bgTex);
+}
+function setBind(tex) {
+  bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: uBuf } },
+    { binding: 1, resource: sampler },
+    { binding: 2, resource: tex.createView() },
+  ]});
+}
+
+// ---------------- kamera ----------------
+let camOn = false, video = null, camTex = null, camStream = null;
+document.getElementById('cam').onclick = async (ev) => {
+  const btn = ev.currentTarget;
+  if (camOn) {
+    camOn = false; btn.classList.remove('on'); camStream?.getTracks().forEach(t => t.stop()); setBind(bgTex); return;
+  }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 } }, audio: false });
+    video = document.createElement('video'); video.playsInline = true; video.muted = true; video.srcObject = camStream;
+    await video.play();
+    camOn = true; btn.classList.add('on');
+    Lab.toast('Kamera to teraz tło szkła');
+  } catch (e) { Lab.toast('Brak dostępu do kamery'); }
+};
+
+// ---------------- kształty szkła (w CSS px) ----------------
+let shapes = [];
+function defaultShapes() {
+  const w = canvas.clientWidth, h = canvas.clientHeight, m = Math.min(w, h), k = Math.min(1.25, m / 520);
+  const mk = (x, y, hw, hh, r) => ({ x, y, hw, hh, r, vx: 0, vy: 0, tx: x, ty: y, sx: 1, sy: 1 });
+  shapes = [
+    mk(w * .5, h * .42, 150 * k, 52 * k, 52 * k),
+    mk(w * .28, h * .66, 62 * k, 62 * k, 62 * k),
+    mk(w * .72, h * .7, 46 * k, 46 * k, 46 * k),
+    mk(w * .66, h * .2, 95 * k, 70 * k, 30 * k),
+  ];
+}
+defaultShapes();
+
+function shapeSDF(s, px, py) {
+  const hw = s.hw * s.sx, hh = s.hh * s.sy, r = Math.min(s.r, hw, hh);
+  const qx = Math.abs(px - s.x) - hw + r, qy = Math.abs(py - s.y) - hh + r;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+}
+
+// ---------------- sterowanie ----------------
+const $ = id => document.getElementById(id);
+const params = {};
+for (const id of ['refr', 'blur', 'chroma', 'smooth', 'bevel']) {
+  const el = $(id), out = el.nextElementSibling;
+  const upd = () => { params[id] = +el.value; out.textContent = el.value; };
+  el.addEventListener('input', upd); upd();
+}
+let autoScroll = true, drip = false;
+$('auto').onclick = e => { autoScroll = !autoScroll; e.currentTarget.classList.toggle('on', autoScroll); };
+$('drip').onclick = e => { drip = !drip; e.currentTarget.classList.toggle('on', drip); if (drip) Lab.toast('Przechyl telefon (albo użyj strzałek)'); };
+$('reset').onclick = () => defaultShapes();
+$('add').onclick = () => {
+  if (shapes.length >= 8) return Lab.toast('Maksymalnie 8 kształtów');
+  const w = canvas.clientWidth, h = canvas.clientHeight, r = 30 + Math.random() * 40;
+  shapes.push({ x: w * (.2 + Math.random() * .6), y: h * (.2 + Math.random() * .6), hw: r, hh: r, r, vx: 0, vy: 0, sx: 1, sy: 1 });
+  const s = shapes[shapes.length - 1]; s.tx = s.x; s.ty = s.y;
+};
+
+// światło: z przechyłu telefonu albo z pozycji kursora
+let light = { x: -0.55, y: -0.85 }, lightTarget = { ...light }, grav = { x: 0, y: 0 }, gotTilt = false;
+const tiltActive = Lab.onTilt(gv => { gotTilt = true; grav = gv; lightTarget = { x: -0.4 - gv.x * 1.3, y: -0.6 - gv.y * 1.3 }; });
+if (Lab.needsMotionPermission() && matchMedia('(pointer: coarse)').matches) {
+  $('gyro').hidden = false;
+  $('gyro').onclick = async () => { if (await Lab.requestMotionPermission()) { $('gyro').hidden = true; Lab.toast('Przechyl telefon'); } };
+}
+const keys = {};
+addEventListener('keydown', e => keys[e.key] = true);
+addEventListener('keyup', e => keys[e.key] = false);
+
+let scroll = 0, scrollV = 0;
+const drags = new Map(); // pointerId -> {shape, ox, oy} | {scroll:true, y}
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  let best = null, bd = 0;
+  for (const s of shapes) { const d = shapeSDF(s, e.clientX, e.clientY); if (d < bd) { bd = d; best = s; } }
+  if (best && ![...drags.values()].some(d => d.shape === best)) {
+    drags.set(e.pointerId, { shape: best, ox: best.x - e.clientX, oy: best.y - e.clientY });
+    canvas.classList.add('dragging');
+  } else drags.set(e.pointerId, { scroll: true, y: e.clientY, t: performance.now() });
+});
+canvas.addEventListener('pointermove', e => {
+  if (!e.buttons && e.pointerType === 'mouse' && !gotTilt) {
+    // na komputerze światło pada od strony kursora
+    const cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2;
+    lightTarget = { x: (e.clientX - cx) / cx, y: (e.clientY - cy) / cy };
+  }
+  const d = drags.get(e.pointerId); if (!d) return;
+  if (d.shape) { d.shape.tx = e.clientX + d.ox; d.shape.ty = e.clientY + d.oy; }
+  else { const dy = e.clientY - d.y; scroll -= dy; scrollV = -dy; d.y = e.clientY; }
+});
+const end = e => { drags.delete(e.pointerId); if (![...drags.values()].some(d => d.shape)) canvas.classList.remove('dragging'); };
+canvas.addEventListener('pointerup', end);
+canvas.addEventListener('pointercancel', end);
+canvas.addEventListener('wheel', e => { e.preventDefault(); scroll += e.deltaY; }, { passive: false });
+
+// ---------------- pętla ----------------
+let last = performance.now(), sizeKey = '';
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const { w: W, h: H, dpr } = Lab.fitCanvas(canvas, 2, 3.2e6);
+  const key = canvas.clientWidth + 'x' + canvas.clientHeight;
+  if (key !== sizeKey) { sizeKey = key; rebuildBackground(); }
+
+  // przewijanie z bezwładnością
+  const scrolling = [...drags.values()].some(d => d.scroll);
+  if (!scrolling) { scroll += scrollV; scrollV *= 0.94; if (autoScroll && Math.abs(scrollV) < 0.5) scroll += 22 * dt; }
+
+  // fizyka kształtów: sprężyna do celu + "galaretowate" rozciąganie od prędkości
+  let gx = grav.x, gy = grav.y;
+  if (keys.ArrowLeft) gx = -1; if (keys.ArrowRight) gx = 1; if (keys.ArrowUp) gy = -1; if (keys.ArrowDown) gy = 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (const s of shapes) {
+    const held = [...drags.values()].some(d => d.shape === s);
+    if (drip && !held) { s.tx += gx * 420 * dt; s.ty += gy * 420 * dt; }
+    s.tx = Math.min(w - s.hw * .6, Math.max(s.hw * .6, s.tx));
+    s.ty = Math.min(h - s.hh * .6, Math.max(s.hh * .6, s.ty));
+    const k = 180, c = 18;
+    s.vx += ((s.tx - s.x) * k - s.vx * c) * dt;
+    s.vy += ((s.ty - s.y) * k - s.vy * c) * dt;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    const stx = 1 + Math.min(.35, Math.abs(s.vx) / 2600) - Math.min(.18, Math.abs(s.vy) / 5000);
+    const sty = 1 + Math.min(.35, Math.abs(s.vy) / 2600) - Math.min(.18, Math.abs(s.vx) / 5000);
+    s.sx += (stx - s.sx) * Math.min(1, dt * 14);
+    s.sy += (sty - s.sy) * Math.min(1, dt * 14);
+  }
+  light.x += (lightTarget.x - light.x) * Math.min(1, dt * 6);
+  light.y += (lightTarget.y - light.y) * Math.min(1, dt * 6);
+
+  // tekstura z kamery
+  if (camOn && video && video.readyState >= 2) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!camTex || camTex.width !== vw || camTex.height !== vh) { camTex?.destroy(); camTex = makeTexture(vw, vh); setBind(camTex); }
+    device.queue.copyExternalImageToTexture({ source: video }, { texture: camTex }, [vw, vh]);
+  }
+
+  // uniformy
+  const P = params;
+  uData[0] = W; uData[1] = H; uData[2] = now / 1000; uData[3] = shapes.length;
+  const ll = Math.hypot(light.x, light.y) || 1;
+  uData[4] = light.x / Math.max(ll, 1); uData[5] = light.y / Math.max(ll, 1);
+  uData[6] = P.refr * 1.1 * dpr; uData[7] = P.blur * 0.45 * dpr;
+  uData[8] = P.chroma / 100 * 0.6; uData[9] = Math.max(0.5, P.smooth * 0.9 * dpr); uData[10] = Math.max(2, P.bevel * 0.9 * dpr); uData[11] = dpr;
+  if (camOn && camTex) {
+    const sa = W / H, va = camTex.width / camTex.height;
+    const sx = -(sa < va ? sa / va : 1), sy = sa > va ? va / sa : 1;
+    uData[12] = sx / W; uData[13] = sy / H; uData[14] = 0.5 - sx * 0.5; uData[15] = 0.5 - sy * 0.5;
+  } else {
+    const total = cssH * SECTIONS;
+    uData[12] = 1 / W; uData[13] = 1 / (dpr * total); uData[14] = 0; uData[15] = ((scroll % total) + total) % total / total;
+  }
+  shapes.forEach((s, i) => {
+    const o = 16 + i * 8;
+    uData[o] = s.x * dpr; uData[o + 1] = s.y * dpr; uData[o + 2] = s.hw * s.sx * dpr; uData[o + 3] = s.hh * s.sy * dpr;
+    uData[o + 4] = s.r * Math.min(s.sx, s.sy) * dpr;
+  });
+  device.queue.writeBuffer(uBuf, 0, uData);
+
+  const enc = device.createCommandEncoder();
+  if (camOn && camTex) generateMips(camTex, enc);
+  const pass = enc.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+  pass.setPipeline(pipeline); pass.setBindGroup(0, bindGroup); pass.draw(3); pass.end();
+  device.queue.submit([enc.finish()]);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
